@@ -12,7 +12,7 @@ class checkList():
                                  password="124kosm21",
                                  host="127.0.0.1",
                                  port="5432",
-                                 database="testdb")
+                                 database="taxonomy_db")
         return conn
 
 
@@ -22,7 +22,7 @@ class checkList():
                                 password="124kosm21",
                                 host="127.0.0.1",
                                 port="5432",
-                                database="testdb")
+                                database="taxonomy_db")
         print(id,text)
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
@@ -54,7 +54,7 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_5_2_j'
+    version='final_5_2'
     ss=checkList()
     ss.openCheckList(path,version)
     ss.save_to_excel(ss.result_list,ss.query_resul)
