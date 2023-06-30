@@ -54,7 +54,7 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_5_2'
+    version='final_6_0_brk'
     ss=checkList()
     ss.openCheckList(path,version)
     ss.save_to_excel(ss.result_list,ss.query_resul)
