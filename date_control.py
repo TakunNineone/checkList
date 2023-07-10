@@ -7,10 +7,10 @@ warnings.filterwarnings("ignore")
 xsd='sr_0420154.xsd'
 
 parentrole_table= f"""
-(select roleuri from roletypes where entity='{xsd}')
+(select roleuri from roletypes where entity='{xsd}' and roleuri='http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R1')
 """
 parentrole_razdel = f"""
-(select uri_razdel from tableparts where entity='{xsd}')
+(select uri_razdel from tableparts where entity='{xsd}' and uri_razdel='http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R1/1')
 """
 sql1 = f"""
 select distinct r.version,r.rinok,r.entity,r.parentrole,r.id,r.label,dimension,concept,period_type,tag,
@@ -440,8 +440,8 @@ class date_control():
             break
         df_to_excel=df_to_excel.drop_duplicates()
         df_to_excel=df_to_excel.sort_values(by=['entrypoint', 'parentrole','concept'],ignore_index=True)
-        # df_to_excel.to_excel("date_control_output.xlsx",index=False)
-        df_period.to_excel("date_control_output.xlsx", index=False)
+        df_to_excel.to_excel("date_control_output.xlsx",index=False)
+        # df_period.to_excel("date_control_output.xlsx", index=False)
 
 
 if __name__ == "__main__":
