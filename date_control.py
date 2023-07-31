@@ -4,245 +4,156 @@ import psycopg2, warnings, gc
 import pandas as pd
 
 warnings.filterwarnings("ignore")
-xsd='sr_0420504.xsd'
-parentrole_table= f"""
-(select roleuri from roletypes where entity='{xsd}' 
---and roleuri='http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R9_P4'
-)
-"""
-parentrole_razdel = f"""
-(select uri_razdel from tableparts where entity='{xsd}' 
---and uri_razdel in 
---('http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R9_P4/1',
---'http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R9_P4/2',
---'http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R9_P4/3',
---'http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R9_P4/4',
---'http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R9_P4/5')
-)
-"""
-sql1 = f"""
-select version,rinok,entity,parentrole,id,label,string_agg(dimension,';') dimension,concept,period_type,
-tag,period_start,period_end,father,is_child
-from
-(
-select distinct r.version,r.rinok,r.entity,r.parentrole,r.id,r.label,dimension,concept,
-case when concept is not null then period_type end period_type,tag,
-case 
-when concept is not null and tagselector is not null and period_type='duration' then rs.per_start 
-when concept is not null and tagselector is not null and period_type='instant' then rs.per_start 
-when concept is not null and tagselector is null and period_type='instant' then period_start
-when concept is not null and tagselector is null and period_type='duration' then period_start end period_start,
-
-case 
-when concept is not null and tagselector is not null and period_type='duration' then rs.per_end
-when concept is not null and tagselector is not null and period_type='instant' then rs.per_end
-when concept is not null and tagselector is null and period_type='duration' then period_end 
-when concept is not null and tagselector is null and period_type='instant' then period_end end period_end,
-a2.arcfrom father,case when a.arcto is null then 0 else 1 end is_child
-from
-(
-select r.version,r.rinok,r.entity,r.parentrole,r.id,r.label,re.dimension||'#'||re.member dimension,
-rc.value concept,tagselector,coalesce(rp.period_type,e.periodtype) period_type,
-rp.start period_start,rp.end period_end
-from rulenodes r
-left join rulenodes_e re on re.version=r.version and re.rinok=r.rinok and re.entity=r.entity and re.parentrole=r.parentrole
-and re.rulenode_id=r.id
-left join rulenodes_c rc on rc.version=r.version and rc.rinok=r.rinok and rc.entity=r.entity and rc.parentrole=r.parentrole
-and rc.rulenode_id=r.id
-left join rulenodes_p rp on rp.version=r.version and rp.rinok=r.rinok and rp.entity=r.entity and rp.parentrole=r.parentrole
-and rp.rulenode_id=r.id
-left join elements e on e.qname=rc.value and e.version=rc.version
-where r.parentrole in {parentrole_table}
-order by concept
-) r
-left join (
-select distinct version,rinok,entity,parentrole,tag,p_type,
-coalesce(per_start,per_instant) per_start,
-per_end
-from
-(
-select rs.*,case when per_start is not null then 'duration' else 'instant' end p_type 
-from rulesets rs
-	where parentrole in {parentrole_table}
-) rs
-) rs on rs.version=r.version and rs.rinok=r.rinok and rs.entity=r.entity and rs.parentrole=r.parentrole and rs.tag=r.tagselector and rs.p_type=r.period_type
-left join arcs a on a.version=r.version and a.rinok=r.rinok and a.entity=r.entity and a.parentrole=r.parentrole and a.arcfrom=r.label  
-left join arcs a2 on a2.version=r.version and a2.rinok=r.rinok and a2.entity=r.entity and a2.parentrole=r.parentrole and a2.arcto=r.label  
-
-union all
-
-select distinct an.version,an.rinok,an.entity,an.parentrole,id,label,dimension,null concept,null period_type,null tag,null period_start,null period_end,
-a2.arcfrom father,case when a.arcto is null then 0 else 1 end is_child
-from aspectnodes an
-left join arcs a on a.version=an.version and a.rinok=an.rinok and a.entity=an.entity and a.parentrole=an.parentrole and a.arcfrom=an.label  
-left join arcs a2 on a2.version=an.version and a2.rinok=an.rinok and a2.entity=an.entity and a2.parentrole=an.parentrole and a2.arcto=an.label  
-where an.parentrole in {parentrole_table}
-) r group by version,rinok,entity,parentrole,id,label,concept,period_type,
-tag,period_start,period_end,father,is_child
-"""
-sql2 = f"""
-select distinct r.version,r.rinok,r.entity,r.parentrole,r.id,r.label,dimension,concept,period_type,tag,
-case 
-when tagselector is not null and period_type='duration' then rs.per_start 
-when tagselector is not null and period_type='instant' then rs.per_start 
-when tagselector is null and period_type='instant' then period_start
-when tagselector is null and period_type='duration' then period_start end period_start,
-
-case 
-when tagselector is not null and period_type='duration' then rs.per_end
-when tagselector is not null and period_type='instant' then rs.per_end
-when tagselector is null and period_type='duration' then period_end 
-when tagselector is null and period_type='instant' then period_end end period_end,
-a2.arcfrom father,case when a.arcto is null then 0 else 1 end is_child
-from
-(
-select r.version,r.rinok,r.entity,r.parentrole,r.id,r.label,re.dimension||'#'||re.member dimension,
-rc.value concept,tagselector,coalesce(rp.period_type,e.periodtype) period_type,
-rp.start period_start,rp.end period_end
-from rulenodes r
-left join rulenodes_e re on re.version=r.version and re.rinok=r.rinok and re.entity=r.entity and re.parentrole=r.parentrole
-and re.rulenode_id=r.id
-left join rulenodes_c rc on rc.version=r.version and rc.rinok=r.rinok and rc.entity=r.entity and rc.parentrole=r.parentrole
-and rc.rulenode_id=r.id
-left join rulenodes_p rp on rp.version=r.version and rp.rinok=r.rinok and rp.entity=r.entity and rp.parentrole=r.parentrole
-and rp.rulenode_id=r.id
-left join elements e on e.qname=rc.value and e.version=rc.version
-where r.parentrole in {parentrole_table}
-order by concept
-) r
-left join (
-select distinct version,rinok,entity,parentrole,tag,p_type,
-coalesce(per_start,per_instant) per_start,
-per_end
-from
-(
-select rs.*,case when per_start is not null then 'duration' else 'instant' end p_type 
-from rulesets rs
-	where parentrole in {parentrole_table}
-) rs
-) rs on rs.version=r.version and rs.rinok=r.rinok and rs.entity=r.entity and rs.parentrole=r.parentrole and rs.tag=r.tagselector and rs.p_type=r.period_type
-left join arcs a on a.version=r.version and a.rinok=r.rinok and a.entity=r.entity and a.parentrole=r.parentrole and a.arcfrom=r.label  
-left join arcs a2 on a2.version=r.version and a2.rinok=r.rinok and a2.entity=r.entity and a2.parentrole=r.parentrole and a2.arcto=r.label  
-order by r.version,r.rinok,r.entity,r.parentrole,r.label,concept
-
-"""
-sql_tt = f"""
-select t.version,t.rinok,t.entity,t.parentrole,table_label,br_label,t.axis,a.arcto root_rulenodes
-from
-(
-select t.version,t.rinok,t.entity,t.parentrole,a.arcfrom table_label,a.arcto br_label,axis
-from tableschemas t
-join arcs a on a.version=t.version and a.rinok=t.rinok and a.entity=t.entity and a.parentrole=t.parentrole and a.arcto=t.label
-and a.arcrole='http://xbrl.org/arcrole/2014/table-breakdown'
-where rolefrom='breakdown'
-and t.parentrole in {parentrole_table}
-) t 
-join arcs a on a.version=t.version and a.rinok=t.rinok and a.entity=t.entity and a.parentrole=t.parentrole and a.arcfrom=t.br_label
-order by t.version,t.rinok,t.entity,t.parentrole,a.arcto
-"""
-sql_pp = f"""
-	select distinct rn.version,rn.rinok,rn.entity,rn.parentrole,period_type,rp.start,rp.end 
-	from rulenodes rn
-	join rulenodes_p rp on rp.version=rn.version and rp.rinok=rn.rinok and rp.entity=rn.entity and rp.parentrole=rn.parentrole and rp.rulenode_id=rn.id
-	where rn.parentrole in {parentrole_table}
-"""
-sql_dop=f"""
-select distinct tp.version,tp.entity,tp.rinok,targetnamespace entrypoint
-from tableparts tp 
-join tables t on t.version=tp.version and t.namespace=tp.uri_table
-where tp.entity='{xsd}'
-"""
-sql_an = f"""
-select an.version,an.rinok,an.entity,an.parentrole,string_agg(dimension,';') an_dim
-from aspectnodes an
-where an.parentrole in {parentrole_table}
-group by an.version,an.rinok,an.entity,an.parentrole
-"""
-sql_def = f"""
-with def as
-(
-select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,a.usable
-from locators l
-join elements e on e.id=href_id and e.version=l.version
-join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
-where l.parentrole in {parentrole_razdel}
-and a.arctype='definition'
-order by parentrole
-),
-cc as 
-(
-select version,rinok,entity,parentrole,qname concept from def 
-where arcrole='http://xbrl.org/int/dim/arcrole/domain-member' and (type not in ('nonnum:domainItemType') or type is null)
-)
-select version,rinok,entity,parentrole,parentrole_text,concept,dimensions||case when dimensions_group is not null then ';' else '' end||coalesce(dimensions_group,'') dimensions
-from
-(
-select cc.version,cc.rinok,cc.entity,cc.parentrole,concept,
-string_agg(dd.qname||case when dd.qname||'#'||coalesce(dd3.qname,dd2.qname) is not null then '#' else '' end||coalesce(coalesce(dd3.qname,dd2.qname),''),';') dimensions,
-string_agg(distinct case when coalesce(dd2.usable,'true') ='true' and dd3.qname is not null then dd.qname||'#'||dd2.qname end,';') dimensions_group,
-rt.definition parentrole_text
-from cc
-left join roletypes rt on rt.roleuri=cc.parentrole
-left join def dd on dd.version=cc.version and dd.entity=cc.entity and dd.rinok=cc.rinok and dd.parentrole=cc.parentrole and dd.arcrole='http://xbrl.org/int/dim/arcrole/hypercube-dimension'
-left join def dd2 on dd.version=dd2.version and dd2.rinok=dd.rinok and dd2.entity=dd.entity and dd2.parentrole=dd.parentrole and dd2.arcfrom=dd.label 
-and dd2.arcrole='http://xbrl.org/int/dim/arcrole/dimension-domain'
-left join def dd3 on dd3.version=dd2.version and dd2.rinok=dd3.rinok and dd2.entity=dd3.entity and dd2.parentrole=dd3.parentrole and dd3.arcfrom=dd2.label 
-and dd3.arcrole='http://xbrl.org/int/dim/arcrole/domain-member'
-group by cc.version,cc.rinok,cc.entity,cc.parentrole,concept,rt.definition
-) zz
-
-"""
-sql_def1=f"""
-with def as
-(
-select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type
-from locators l
-join elements e on e.id=href_id and e.version=l.version
-join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
-where l.parentrole in {parentrole_razdel}
-and a.arctype='definition'
-order by parentrole
-),
-cc as 
-(
-select version,rinok,entity,parentrole,qname concept from def 
-where arcrole='http://xbrl.org/int/dim/arcrole/domain-member' and (type not in ('nonnum:domainItemType') or type is null)
-)
-select cc.version,cc.rinok,cc.entity,cc.parentrole,concept,
-string_agg(dd.qname||case when dd.qname||'#'||coalesce(dd3.qname,dd2.qname) is not null then '#' else '' end||coalesce(coalesce(dd3.qname,dd2.qname),''),';') dimensions,
-rt.definition parentrole_text
-from cc
-left join roletypes rt on rt.roleuri=cc.parentrole
-left join def dd on dd.version=cc.version and dd.entity=cc.entity and dd.rinok=cc.rinok and dd.parentrole=cc.parentrole and dd.arcrole='http://xbrl.org/int/dim/arcrole/hypercube-dimension'
-left join def dd2 on dd.version=dd2.version and dd2.rinok=dd.rinok and dd2.entity=dd.entity and dd2.parentrole=dd.parentrole and dd2.arcfrom=dd.label 
-and dd2.arcrole='http://xbrl.org/int/dim/arcrole/dimension-domain'
-left join def dd3 on dd3.version=dd2.version and dd2.rinok=dd3.rinok and dd2.entity=dd3.entity and dd2.parentrole=dd3.parentrole and dd3.arcfrom=dd2.label 
-and dd3.arcrole='http://xbrl.org/int/dim/arcrole/domain-member'
-group by cc.version,cc.rinok,cc.entity,cc.parentrole,concept,rt.definition
-order by parentrole,concept,array_length(array_agg(dd.qname||'#'||coalesce(coalesce(dd3.qname,dd2.qname),'')),1) desc
-
-"""
 
 class date_control():
-    def __init__(self):
+    def __init__(self,xsd,name):
         self.result_list = []
         self.query_resul = []
+        self.parentrole_table = f"""
+        (select roleuri from roletypes where entity='{xsd}')
+        """
+        self.parentrole_razdel = f"""
+        (select uri_razdel from tableparts where entity='{xsd}')
+        """
+        self.sql1 = f"""
+        select version,rinok,entity,parentrole,id,label,string_agg(dimension,';') dimension,concept,period_type,
+        tag,period_start,period_end,father,is_child
+        from
+        (
+        select distinct r.version,r.rinok,r.entity,r.parentrole,r.id,r.label,dimension,concept,
+        case when concept is not null then period_type end period_type,tag,
+        case 
+        when concept is not null and tagselector is not null and period_type='duration' then rs.per_start 
+        when concept is not null and tagselector is not null and period_type='instant' then rs.per_start 
+        when concept is not null and tagselector is null and period_type='instant' then period_start
+        when concept is not null and tagselector is null and period_type='duration' then period_start end period_start,
+
+        case 
+        when concept is not null and tagselector is not null and period_type='duration' then rs.per_end
+        when concept is not null and tagselector is not null and period_type='instant' then rs.per_end
+        when concept is not null and tagselector is null and period_type='duration' then period_end 
+        when concept is not null and tagselector is null and period_type='instant' then period_end end period_end,
+        a2.arcfrom father,case when a.arcto is null then 0 else 1 end is_child
+        from
+        (
+        select r.version,r.rinok,r.entity,r.parentrole,r.id,r.label,re.dimension||'#'||re.member dimension,
+        rc.value concept,tagselector,coalesce(rp.period_type,e.periodtype) period_type,
+        rp.start period_start,rp.end period_end
+        from rulenodes r
+        left join rulenodes_e re on re.version=r.version and re.rinok=r.rinok and re.entity=r.entity and re.parentrole=r.parentrole
+        and re.rulenode_id=r.id
+        left join rulenodes_c rc on rc.version=r.version and rc.rinok=r.rinok and rc.entity=r.entity and rc.parentrole=r.parentrole
+        and rc.rulenode_id=r.id
+        left join rulenodes_p rp on rp.version=r.version and rp.rinok=r.rinok and rp.entity=r.entity and rp.parentrole=r.parentrole
+        and rp.rulenode_id=r.id
+        left join elements e on e.qname=rc.value and e.version=rc.version
+        where r.parentrole in {self.parentrole_table}
+        order by concept
+        ) r
+        left join (
+        select distinct version,rinok,entity,parentrole,tag,p_type,
+        coalesce(per_start,per_instant) per_start,
+        per_end
+        from
+        (
+        select rs.*,case when per_start is not null then 'duration' else 'instant' end p_type 
+        from rulesets rs
+        	where parentrole in {self.parentrole_table}
+        ) rs
+        ) rs on rs.version=r.version and rs.rinok=r.rinok and rs.entity=r.entity and rs.parentrole=r.parentrole and rs.tag=r.tagselector and rs.p_type=r.period_type
+        left join arcs a on a.version=r.version and a.rinok=r.rinok and a.entity=r.entity and a.parentrole=r.parentrole and a.arcfrom=r.label  
+        left join arcs a2 on a2.version=r.version and a2.rinok=r.rinok and a2.entity=r.entity and a2.parentrole=r.parentrole and a2.arcto=r.label  
+
+        union all
+
+        select distinct an.version,an.rinok,an.entity,an.parentrole,id,label,dimension,null concept,null period_type,null tag,null period_start,null period_end,
+        a2.arcfrom father,case when a.arcto is null then 0 else 1 end is_child
+        from aspectnodes an
+        left join arcs a on a.version=an.version and a.rinok=an.rinok and a.entity=an.entity and a.parentrole=an.parentrole and a.arcfrom=an.label  
+        left join arcs a2 on a2.version=an.version and a2.rinok=an.rinok and a2.entity=an.entity and a2.parentrole=an.parentrole and a2.arcto=an.label  
+        where an.parentrole in {self.parentrole_table}
+        ) r group by version,rinok,entity,parentrole,id,label,concept,period_type,
+        tag,period_start,period_end,father,is_child
+        """
+        self.sql_tt = f"""
+        select t.version,t.rinok,t.entity,t.parentrole,table_label,br_label,t.axis,a.arcto root_rulenodes
+        from
+        (
+        select t.version,t.rinok,t.entity,t.parentrole,a.arcfrom table_label,a.arcto br_label,axis
+        from tableschemas t
+        join arcs a on a.version=t.version and a.rinok=t.rinok and a.entity=t.entity and a.parentrole=t.parentrole and a.arcto=t.label
+        and a.arcrole='http://xbrl.org/arcrole/2014/table-breakdown'
+        where rolefrom='breakdown'
+        and t.parentrole in {self.parentrole_table}
+        ) t 
+        join arcs a on a.version=t.version and a.rinok=t.rinok and a.entity=t.entity and a.parentrole=t.parentrole and a.arcfrom=t.br_label
+        order by t.version,t.rinok,t.entity,t.parentrole,a.arcto
+        """
+        self.sql_pp = f"""
+        	select distinct rn.version,rn.rinok,rn.entity,rn.parentrole,period_type,rp.start,rp.end 
+        	from rulenodes rn
+        	join rulenodes_p rp on rp.version=rn.version and rp.rinok=rn.rinok and rp.entity=rn.entity and rp.parentrole=rn.parentrole and rp.rulenode_id=rn.id
+        	where rn.parentrole in {self.parentrole_table}
+        """
+        self.sql_dop = f"""
+        select distinct tp.version,tp.entity,tp.rinok,targetnamespace entrypoint
+        from tableparts tp 
+        join tables t on t.version=tp.version and t.namespace=tp.uri_table
+        where tp.entity='{xsd}'
+        """
+        self.sql_def = f"""
+        with def as
+        (
+        select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,a.usable
+        from locators l
+        join elements e on e.id=href_id and e.version=l.version
+        join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
+        where l.parentrole in {self.parentrole_razdel}
+        and a.arctype='definition'
+        order by parentrole
+        ),
+        cc as
+        (
+        select version,rinok,entity,parentrole,qname concept from def
+        where arcrole='http://xbrl.org/int/dim/arcrole/domain-member' and (type not in ('nonnum:domainItemType') or type is null)
+        )
+        select version,rinok,entity,parentrole,parentrole_text,concept,dimensions||case when dimensions_group is not null then ';' else '' end||coalesce(dimensions_group,'') dimensions
+        from
+        (
+        select cc.version,cc.rinok,cc.entity,cc.parentrole,concept,
+        string_agg(dd.qname||case when dd.qname||'#'||coalesce(dd3.qname,dd2.qname) is not null then '#' else '' end||coalesce(coalesce(dd3.qname,dd2.qname),''),';') dimensions,
+        string_agg(distinct case when coalesce(dd2.usable,'true') ='true' and dd3.qname is not null then dd.qname||'#'||dd2.qname end,';') dimensions_group,
+        rt.definition parentrole_text
+        from cc
+        left join roletypes rt on rt.roleuri=cc.parentrole
+        left join def dd on dd.version=cc.version and dd.entity=cc.entity and dd.rinok=cc.rinok and dd.parentrole=cc.parentrole and dd.arcrole='http://xbrl.org/int/dim/arcrole/hypercube-dimension'
+        left join def dd2 on dd.version=dd2.version and dd2.rinok=dd.rinok and dd2.entity=dd.entity and dd2.parentrole=dd.parentrole and dd2.arcfrom=dd.label
+        and dd2.arcrole='http://xbrl.org/int/dim/arcrole/dimension-domain'
+        left join def dd3 on dd3.version=dd2.version and dd2.rinok=dd3.rinok and dd2.entity=dd3.entity and dd2.parentrole=dd3.parentrole and dd3.arcfrom=dd2.label
+        and dd3.arcrole='http://xbrl.org/int/dim/arcrole/domain-member'
+        group by cc.version,cc.rinok,cc.entity,cc.parentrole,concept,rt.definition
+        ) zz
+        """
+        self.name=name
 
     def do_sql(self):
         connect = psycopg2.connect(user="postgres",
                                    password="124kosm21",
                                    host="127.0.0.1",
                                    port="5432",
-                                   database="testdb")
+                                   database="taxonomy_db")
 
-        re = pd.read_sql_query(sql1, connect)
-        tt = pd.read_sql_query(sql_tt, connect)
-        pp = pd.read_sql_query(sql_pp, connect)
-        an = pd.read_sql_query(sql_an, connect)
-        dd = pd.read_sql_query(sql_def, connect)
-        dop = pd.read_sql_query(sql_dop, connect)
+
+
+        re = pd.read_sql_query(self.sql1, connect)
+        tt = pd.read_sql_query(self.sql_tt, connect)
+        pp = pd.read_sql_query(self.sql_pp, connect)
+        dd = pd.read_sql_query(self.sql_def, connect)
+        dop = pd.read_sql_query(self.sql_dop, connect)
 
         re_e = re[re['concept'].isnull() == True]
+
+
 
         for indx, row in re_e.iterrows():
 
@@ -364,10 +275,10 @@ class date_control():
             except: dim_re = None
             if dim_re: dim_re = [dim_re]
             else: dim_re = []
-            try: dim_an = [an[an['parentrole'] == row['parentrole']]['an_dim'].values[0]]
-            except: dim_an = None
-            if dim_an: dim_an = dim_an
-            else: dim_an = []
+            # try: dim_an = [an[an['parentrole'] == row['parentrole']]['an_dim'].values[0]]
+            # except: dim_an = None
+            # if dim_an: dim_an = dim_an
+            # else: dim_an = []
 
             dim_all = dim_concept + dim_re
             dim_all.sort()
@@ -456,6 +367,12 @@ class date_control():
                 print('--ERROR--')
                 print(row['parentrole'])
                 print('---------------------')
+                final_df_dd.loc[-1] = [row['concept'], row['dimensions'],
+                                       'ERROR',
+                                       'ERROR', row['dimensions'],
+                                       row['parentrole'], row['parentrole_text']]
+                final_df_dd.index = final_df_dd.index + 1
+                final_df_dd = final_df_dd.sort_index()
 
         # for i,row in final_df_dd.iterrows():
         #     print(row['concept'],row['uri_razdel'],row['period_start'],row['period_end'])
@@ -476,10 +393,26 @@ class date_control():
             break
         df_to_excel=df_to_excel.drop_duplicates()
         df_to_excel=df_to_excel.sort_values(by=['entrypoint', 'parentrole','concept'],ignore_index=True)
-        df_to_excel.to_excel("date_control_output.xlsx",index=False)
+        df_to_excel.to_excel(f"{self.name}_output.xlsx",index=False)
         # df_period.to_excel("date_control_output.xlsx", index=False)
 
 
 if __name__ == "__main__":
-    ss = date_control()
-    ss.do_sql()
+    forms=['sr_0420504.xsd']
+#     forms=['sr_0420502.xsd',
+# 'sr_0420514.xsd',
+# 'sr_0420506.xsd',
+# 'sr_0420526.xsd',
+# 'sr_0420507.xsd',
+# 'sr_0420503.xsd',
+# 'sr_0420513.xsd',
+# 'sr_0420501.xsd',
+# 'sr_0420508.xsd',
+# 'sr_0420509.xsd',
+# 'sr_0420512.xsd',
+# 'sr_sved_otch_org.xsd',
+# 'EPS_chasti.xsd',
+# 'sr_soprovod.xsd']
+    for xx in forms:
+        ss = date_control(xx,xx.split('.')[0])
+        ss.do_sql()
