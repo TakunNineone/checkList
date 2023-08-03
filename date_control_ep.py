@@ -6,14 +6,24 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 class date_control():
-    def __init__(self,xsd,name):
+    def __init__(self,ep,name):
         self.result_list = []
         self.query_resul = []
+        self.ep=ep
+        self.xsd=f"""
+        (select distinct tp.entity
+        from tableparts tp 
+        join tables t on t.version=tp.version and t.namespace=tp.uri_table
+        where targetnamespace = '{ep}')
+        """
         self.parentrole_table = f"""
-        (select roleuri from roletypes where entity='{xsd}')
+        (select roleuri from roletypes where entity in {self.xsd})
         """
         self.parentrole_razdel = f"""
-        (select uri_razdel from tableparts where entity='{xsd}')
+        (select distinct uri_razdel
+        from tableparts tp 
+        join tables t on t.version=tp.version and t.namespace=tp.uri_table
+        where targetnamespace = '{ep}')
         """
         self.sql1 = f"""
         select version,rinok,entity,parentrole,id,label,string_agg(dimension,';') dimension,concept,period_type,
@@ -98,12 +108,6 @@ class date_control():
         	join rulenodes_p rp on rp.version=rn.version and rp.rinok=rn.rinok and rp.entity=rn.entity and rp.parentrole=rn.parentrole and rp.rulenode_id=rn.id
         	where rn.parentrole in {self.parentrole_table}
         """
-        self.sql_dop = f"""
-        select distinct tp.version,tp.entity,tp.rinok,targetnamespace entrypoint
-        from tableparts tp 
-        join tables t on t.version=tp.version and t.namespace=tp.uri_table
-        where tp.entity='{xsd}' and targetnamespace not like '%support%'
-        """
         self.sql_def1 = f"""
         with def as
         (
@@ -148,7 +152,26 @@ join locators lm on  a.version=lm.version and a.rinok=lm.rinok and a.entity=lm.e
 join elements e on e.id=l.href_id and e.version=l.version
 join elements em on em.id=lm.href_id and em.version=lm.version
 ),
-def as
+def1 as
+(
+select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,coalesce(e.abstract,'false') abstract,a.usable,targetrole,
+	case when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' and coalesce(e.type,'')!='nonnum:domainItemType' then 1
+	when arcrole='http://xbrl.org/int/dim/arcrole/hypercube-dimension' then 2
+	when arcrole='http://xbrl.org/int/dim/arcrole/dimension-domain' then 3
+	when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' then 4 
+	when arcrole='http://xbrl.org/int/dim/arcrole/notAll' then 5 
+	when arcrole='http://xbrl.org/int/dim/arcrole/all' then 0 else -1 end type_elem
+from locators l
+join elements e on e.id=href_id and e.version=l.version and e.rinok not in ('eps')
+join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
+and a.arctype='definition' 
+where l.rinok='bfo' and l.parentrole in {self.parentrole_razdel}
+-- 		and l.parentrole in 
+-- ('http://www.cbr.ru/xbrl/bfo/rep/2024-01-01/tab/FR_4_005_02b_01','http://www.cbr.ru/xbrl/bfo/dict/Exclusion_001_technical',
+-- 'http://www.cbr.ru/xbrl/bfo/dict/Exclusion_100_technical','http://www.cbr.ru/xbrl/bfo/dict/Exclusion_101_technical')
+	order by arcrole
+),
+def2 as
 (
 select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,coalesce(e.abstract,'false') abstract,a.usable,targetrole,
 	case when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' and coalesce(e.type,'')!='nonnum:domainItemType' then 1
@@ -161,9 +184,14 @@ from locators l
 join elements e on e.id=href_id and e.version=l.version
 join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
 and a.arctype='definition' 
-where l.parentrole in {self.parentrole_razdel} 
---and l.parentrole in ('http://www.cbr.ru/xbrl/nso/uk/rep/2023-03-31/tab/sr_0420503_R3_6')
+where l.rinok='bfo' and l.parentrole in (select distinct targetrole from def1 where targetrole is not null) 
 	order by arcrole
+),
+def as
+(
+select * from def2
+		union all 
+select * from def1
 ),
 dd as
 (
@@ -194,8 +222,12 @@ group by version,rinok,entity,parentrole,split_part(dims,'#',1)
 group by version,rinok,entity,parentrole
 )
 
+
 select distinct dd.version,dd.rinok,dd.entity,parentrole,rt.definition parentrole_text,concept,
-array_to_string(case when dims is not null then delete_default_dims(dims,(select * from df)) else dims end,';') dimensions
+array_to_string(case when dims is not null then delete_default_dims(dims,(select * from df)) else dims end,';') dimensions,is_minus
+from
+(
+select version,rinok,entity,concept,dims,parentrole,max(is_minus) is_minus
 from
 (
 select cc.version,cc.rinok,cc.entity,cc.parentrole,cc.qname concept,dims,dims_minus,
@@ -213,8 +245,11 @@ left join
 select d1.version,d1.rinok,d1.entity,d1.parentrole,d1.arcfrom,dims dims_minus
 from def d1 
 join dd d2 on d1.version=d2.version and d1.rinok=d2.rinok and d2.parentrole=d1.targetrole
+where d1.type_elem=5
 ) tr on tr.version=cc.version and cc.rinok=tr.rinok and cc.entity=tr.entity and cc.parentrole=tr.parentrole and tr.arcfrom=cc.label
 ) dd
+group by version,rinok,entity,concept,dims,parentrole
+) dd 
 left join roletypes rt on rt.roleuri=dd.parentrole
 where is_minus=0
 order by version,rinok,parentrole,concept
@@ -234,7 +269,6 @@ order by version,rinok,parentrole,concept
         tt = pd.read_sql_query(self.sql_tt, connect)
         pp = pd.read_sql_query(self.sql_pp, connect)
         dd = pd.read_sql_query(self.sql_def, connect)
-        dop = pd.read_sql_query(self.sql_dop, connect)
 
         re_e = re[re['concept'].isnull() == True]
 
@@ -368,9 +402,12 @@ order by version,rinok,parentrole,concept
         # for xx,row in final_df.iterrows():
         #     print(['concept'],row['dimension'])
 
-        final_df_dd = pd.DataFrame(columns=['concept', 'dimension', 'period_start', 'period_end', 'new_dimension', 'uri_razdel','parentrole_text'])
+        final_df_dd = pd.DataFrame(columns=['entrypoint','concept','hypercube','ogrn','period_start','period_end','parentrole','parentrole_text'])
+
+
 
         for i, row in dd.iterrows():
+            print(str(i) + ' ' + str(len(dd)))
             if row['dimensions']:
                 dim1 = row['dimensions'].split(';')
                 dim1.sort()
@@ -392,18 +429,16 @@ order by version,rinok,parentrole,concept
                     dim2_clear = []
                 if numpy.isin(dim1, dim2).all() and row2['parentrole'] in row['parentrole']:
                     for xx in range(len(row2['period_start'])):
-                        final_df_dd.loc[-1] = [row2['concept'], row2['dimension'],
-                                               row2['period_start'][xx] if row2['period_start'][xx] else '$par:refPeriodEnd', row2['period_end'][xx], row['dimensions'],
-                                               row['parentrole'], row['parentrole_text']]
+                        final_df_dd.loc[-1] = [self.ep, row2['concept'], row['dimensions'],None,row2['period_start'][xx] if row2['period_start'][xx] else '$par:refPeriodEnd',
+                                                row2['period_end'][xx],row['parentrole'], row['parentrole_text']]
                         final_df_dd.index = final_df_dd.index + 1
                         final_df_dd = final_df_dd.sort_index()
                     check = True
                     break
                 elif numpy.isin(dim1, dim2).all()==False and numpy.isin(dim1_clear, dim2_clear).all() and row2['parentrole'] in row['parentrole']:
                     for xx in range(len(row2['period_start'])):
-                        final_df_dd.loc[-1] = [row2['concept'], row2['dimension'],
-                                               row2['period_start'][xx] if row2['period_start'][xx] else '$par:refPeriodEnd', row2['period_end'][xx], row['dimensions'],
-                                               row['parentrole'], row['parentrole_text']]
+                        final_df_dd.loc[-1] = [self.ep, row2['concept'], row['dimensions'],None,row2['period_start'][xx] if row2['period_start'][xx] else '$par:refPeriodEnd',
+                                                row2['period_end'][xx],row['parentrole'], row['parentrole_text']]
                         final_df_dd.index = final_df_dd.index + 1
                         final_df_dd = final_df_dd.sort_index()
                     check = True
@@ -427,52 +462,20 @@ order by version,rinok,parentrole,concept
                 print('--ERROR--')
                 print(row['parentrole'])
                 print('---------------------')
-                final_df_dd.loc[-1] = [row['concept'], row['dimensions'],
-                                       'ERROR',
-                                       'ERROR', row['dimensions'],
-                                       row['parentrole'], row['parentrole_text']]
+                final_df_dd.loc[-1] = [self.ep, row2['concept'], row['dimensions'],None,'ERROR','ERROR',row['parentrole'], row['parentrole_text']]
                 final_df_dd.index = final_df_dd.index + 1
                 final_df_dd = final_df_dd.sort_index()
 
-        # for i,row in final_df_dd.iterrows():
-        #     print(row['concept'],row['uri_razdel'],row['period_start'],row['period_end'])
-
-        #final_df_dd=final_df_dd.drop_duplicates()
-
-        # final_df_dd=final_df_dd.sort_values(by=['parentrole', 'concept'], ignore_index=True)
-        # for i,row in final_df_dd.iterrows():
-        #     print(row['concept'],row['uri_razdel'],' DIM = ',row['new_dimension'])
-
-        df_to_excel=pd.DataFrame(columns=['entrypoint','concept','hypercube','ogrn','period_start','period_end','parentrole','parentrole_text'])
-        for i,xx in dop.iterrows():
-            for j,yy in final_df_dd.iterrows():
-                dim=yy['new_dimension']
-                df_to_excel.loc[-1] = [xx['entrypoint'],yy['concept'],dim,None,yy['period_start'],yy['period_end'],yy['uri_razdel'],yy['parentrole_text']]
-                df_to_excel.index = df_to_excel.index + 1
-                df_to_excel = df_to_excel.sort_index()
-        df_to_excel=df_to_excel.drop_duplicates()
-        df_to_excel=df_to_excel.sort_values(by=['entrypoint', 'parentrole','concept'],ignore_index=True)
-        df_to_excel.to_excel(f"{self.name}_output.xlsx",index=False)
+        print('сохраняю exel')
+        final_df_dd=final_df_dd.drop_duplicates()
+        final_df_dd=final_df_dd.sort_values(by=['entrypoint', 'parentrole','concept'],ignore_index=True)
+        final_df_dd.to_excel(f"{self.name}_output.xlsx",index=False)
         connect.close()
         print('завершено')
         # df_period.to_excel("date_control_output.xlsx", index=False)
 
 
 if __name__ == "__main__":
-    # forms = ['sr_0420502.xsd',
-    #          'sr_0420514.xsd',
-    #          'sr_0420506.xsd',
-    #          'sr_0420526.xsd',
-    #          'sr_0420507.xsd',
-    #          'sr_0420503.xsd',
-    #          'sr_0420513.xsd',
-    #          'sr_0420501.xsd',
-    #          'sr_0420508.xsd',
-    #          'sr_0420509.xsd',
-    #          'sr_0420512.xsd',
-    #          'sr_sved_otch_org.xsd',
-    #          'sr_soprovod.xsd']
-    forms=['sr_0420154.xsd']
-    for xx in forms:
-        ss = date_control(xx,xx.split('.')[0])
-        ss.do_sql()
+    ep='http://www.cbr.ru/xbrl/bfo/rep/2023-03-31/ep/ep_npf_ao_y_39'
+    ss = date_control(ep,ep.split('/')[-1])
+    ss.do_sql()

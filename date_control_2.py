@@ -26,13 +26,14 @@ class date_control():
         when concept is not null and tagselector is not null and period_type='duration' then rs.per_start 
         when concept is not null and tagselector is not null and period_type='instant' then rs.per_start 
         when concept is not null and tagselector is null and period_type='instant' then period_start
-        when concept is not null and tagselector is null and period_type='duration' then period_start end period_start,
+        when concept is not null and tagselector is null and period_type='duration' then period_start else period_start end period_start,
 
         case 
         when concept is not null and tagselector is not null and period_type='duration' then rs.per_end
         when concept is not null and tagselector is not null and period_type='instant' then rs.per_end
         when concept is not null and tagselector is null and period_type='duration' then period_end 
-        when concept is not null and tagselector is null and period_type='instant' then period_end end period_end,
+        when concept is not null and tagselector is null and period_type='instant' then period_end 
+		else period_end end period_end,
         a2.arcfrom father,case when a.arcto is null then 0 else 1 end is_child
         from
         (
@@ -263,6 +264,7 @@ order by version,rinok,parentrole,concept
         re_c.loc[:, "label_up"] = re_c['label']
 
 
+
         for indx, row in re_c.iterrows():
             while row['label_up'] not in [xx['root_rulenodes'] for i, xx in tt.iterrows()]:
                 father = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['label'].values[0]
@@ -276,13 +278,16 @@ order by version,rinok,parentrole,concept
                         'dimension'] else dimensions if dimensions else row['dimension'] if row['dimension'] else None
                     row['label_up'] = father
                     row['father'] = grandfather
-                    row['period_type'] = row['period_type'] if row[
-                        'period_type'] else period_type if period_type else None
+                    row['period_type'] = row['period_type'] if row['period_type'] else period_type if period_type else None
                     if row['period_start'] == None:
                         re_c['period_start'][indx] = period_start
                     if row['period_end'] == None:
                         re_c['period_end'][indx] = period_end
                     row['dimension'] = dim
+
+        for xx,row in re_c.iterrows():
+            print(row['label'],'----',row['father'],'----',row['concept'],row['period_start'],row['period_end'])
+        print('########################')
 
         for p, row in re_c.iterrows():
             try: child_period_start = re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['period_start'].values[0]
@@ -305,6 +310,9 @@ order by version,rinok,parentrole,concept
             except:  end = None
             if not row['period_start']: re_c['period_start'][p] = start
             if not row['period_end']: re_c['period_end'][p] = end
+
+
+
 #################
         df_period= pd.DataFrame(columns=['parentrole','concept','period_start','period_end'])
         for i,row in re_c.iterrows():
@@ -371,6 +379,7 @@ order by version,rinok,parentrole,concept
         final_df_dd = pd.DataFrame(columns=['concept', 'dimension', 'period_start', 'period_end', 'new_dimension', 'uri_razdel','parentrole_text'])
 
         for i, row in dd.iterrows():
+            print(str(i) + ' ' + str(len(dd)))
             if row['dimensions']:
                 dim1 = row['dimensions'].split(';')
                 dim1.sort()
@@ -434,15 +443,7 @@ order by version,rinok,parentrole,concept
                 final_df_dd.index = final_df_dd.index + 1
                 final_df_dd = final_df_dd.sort_index()
 
-        # for i,row in final_df_dd.iterrows():
-        #     print(row['concept'],row['uri_razdel'],row['period_start'],row['period_end'])
-
-        #final_df_dd=final_df_dd.drop_duplicates()
-
-        # final_df_dd=final_df_dd.sort_values(by=['parentrole', 'concept'], ignore_index=True)
-        # for i,row in final_df_dd.iterrows():
-        #     print(row['concept'],row['uri_razdel'],' DIM = ',row['new_dimension'])
-
+        print('сохраняю exel')
         df_to_excel=pd.DataFrame(columns=['entrypoint','concept','hypercube','ogrn','period_start','period_end','parentrole','parentrole_text'])
         for i,xx in dop.iterrows():
             for j,yy in final_df_dd.iterrows():
@@ -472,7 +473,7 @@ if __name__ == "__main__":
     #          'sr_0420512.xsd',
     #          'sr_sved_otch_org.xsd',
     #          'sr_soprovod.xsd']
-    forms=['sr_0420154.xsd']
+    forms=['sr_0420506.xsd']
     for xx in forms:
         ss = date_control(xx,xx.split('.')[0])
         ss.do_sql()

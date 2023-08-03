@@ -6,7 +6,7 @@ def do_sql(sql):
                                password="124kosm21",
                                host="127.0.0.1",
                                port="5432",
-                               database="taxonomy_db")
+                               database="bfo")
     df = pd.read_sql_query(sql, connect)
     connect.close()
     gc.collect()
@@ -44,8 +44,9 @@ join elements e on e.id=href_id and e.version=l.version and e.rinok not in ('eps
 join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
 and a.arctype='definition' 
 where l.rinok='bfo'
--- 	and l.parentrole in 
--- ('http://www.cbr.ru/xbrl/bfo/rep/2023-03-31/tab/FR_2_050_01d_01')
+-- 		and l.parentrole in 
+-- ('http://www.cbr.ru/xbrl/bfo/rep/2024-01-01/tab/FR_4_005_02b_01','http://www.cbr.ru/xbrl/bfo/dict/Exclusion_001_technical',
+-- 'http://www.cbr.ru/xbrl/bfo/dict/Exclusion_100_technical','http://www.cbr.ru/xbrl/bfo/dict/Exclusion_101_technical')
 	order by arcrole
 ),
 dd as
@@ -80,6 +81,9 @@ array_length(array_agg(distinct parentrole),1) len,is_minus,
 string_agg(distinct parentrole,';') roles
 from
 (
+select version,rinok,entrypoint,concept,dims,parentrole,max(is_minus) is_minus
+from
+(
 select dd.version,dd.rinok,entrypoint,concept,
 case when dims is null then dims else delete_default_dims(dims,dim_def) end dims,parentrole,is_minus
 from
@@ -110,11 +114,13 @@ join tables t on t.version=tp.version and t.namespace=tp.uri_table
 ) tp on tp.version=dd.version and tp.rinok=dd.rinok and tp.uri_razdel=dd.parentrole	
 join df on 1=1
 ) dd 
-
+group by version,rinok,entrypoint,concept,dims,parentrole
+	) dd
 group by version,rinok,concept,dims,entrypoint,is_minus
 order by version,rinok,entrypoint,concept
+
 """
 
-df=do_sql(sql)
-save_to_excel(df,sql,'bfo_dubles3')
+df=do_sql(sql_bfo)
+save_to_excel(df,sql_bfo,'bfo_dubles_new')
 
