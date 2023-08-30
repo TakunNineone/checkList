@@ -1,3 +1,5 @@
+import os
+
 import numpy
 import numpy as np
 import psycopg2, warnings, gc
@@ -469,7 +471,7 @@ order by version,rinok,parentrole,concept
         print('сохраняю exel')
         final_df_dd=final_df_dd.drop_duplicates()
         final_df_dd=final_df_dd.sort_values(by=['entrypoint', 'parentrole','concept'],ignore_index=True)
-        final_df_dd.to_excel(f"{self.name}_output.xlsx",index=False)
+        final_df_dd.to_excel(f"{os.getcwd()}/datecontrol/{self.name}_output.xlsx",index=False)
         connect.close()
         print('завершено')
         # df_period.to_excel("date_control_output.xlsx", index=False)
