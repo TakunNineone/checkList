@@ -1,4 +1,4 @@
-import numpy
+import numpy,openpyxl
 import numpy as np
 import psycopg2, warnings, gc, os
 import pandas as pd
@@ -19,19 +19,23 @@ class date_control():
         select distinct targetnamespace||';'||tp.entity||';'||tp.rinok data
         from tableparts tp 
         join tables t on t.version=tp.version and t.namespace=tp.uri_table and t.rinok=tp.rinok
-        where targetnamespace = '{ep}' --and tp.entity in ('FR_BS_NPF_AO_39.xsd')
+        where targetnamespace = '{ep}' and lower(tp.entity) not like '%eps_chasti%'
         """
 
     def read_data(self):
         data = pd.read_sql_query(self.data, self.connect)
         return data
 
-    def do_sql(self, xsd, roles_def, rinok, ep,iskl):
+    def do_sql(self, xsd, roles_def, rinok, ep, iskl):
         self.parentrole_table = f"""
-                (select roleuri from roletypes where entity in {xsd} and rinok='{rinok}')
+                (select roleuri from roletypes where entity in {xsd} and rinok='{rinok}' 
+               -- and roleuri='http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R2_P21_2'
+                )
                 """
         self.parentrole_razdel = f"""
-                (select roleuri from rolerefs where entity in {roles_def} and rinok='{rinok}' and roleuri is not null)
+                (select roleuri from rolerefs where entity in {roles_def} and rinok='{rinok}' 
+              --  and roleuri='http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R2_P21_2/1'
+                )
                 """
         self.sql1 = f"""
                 select version,rinok,entity,parentrole,id,label,string_agg(dimension,';') dimension,concept,period_type,
@@ -117,59 +121,77 @@ class date_control():
                 	join rulenodes_p rp on rp.version=rn.version and rp.rinok=rn.rinok and rp.entity=rn.entity and rp.parentrole=rn.parentrole and rp.rulenode_id=rn.id
                 	where rn.parentrole in {self.parentrole_table}
                 """
+        null__ = '{NULL}'
         self.sql_def = f"""
-
         with 
-          def as
-        (
-        select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,coalesce(e.abstract,'false') abstract,a.usable,targetrole,
+def as
+(
+	select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,coalesce(e.abstract,'false') abstract,a.usable,targetrole,
         	case when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' and coalesce(e.type,'')!='nonnum:domainItemType' then 1
         	when arcrole='http://xbrl.org/int/dim/arcrole/hypercube-dimension' then 2
         	when arcrole='http://xbrl.org/int/dim/arcrole/dimension-domain' then 3
         	when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' then 4 
         	when arcrole='http://xbrl.org/int/dim/arcrole/notAll' then 5 
-        	when arcrole='http://xbrl.org/int/dim/arcrole/all' then 0 else -1 end type_elem
+        	when arcrole='http://xbrl.org/int/dim/arcrole/all' then 0 else -1 end type_elem,
+		typeddomainref
         from locators l
         join elements e on e.id=href_id and e.version=l.version and e.rinok!='{iskl}'
         join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
         and a.arctype='definition' 
-        where l.parentrole in {self.parentrole_razdel}  
+        where l.parentrole in {self.parentrole_razdel}
         order by arcrole
-        ),
-        dd as
-        (
-        select version,rinok,entity,parentrole,string_to_array(unnest(cross_agregate(array_agg(dims))),'|') dims
-        from
-        (select version,rinok,dd.entity,parentrole,split_part(dims,'#',1) dim, 
-		array_to_string(array_agg(dims),'|') dims
-        from
-        (
-        select version,rinok,entity,parentrole,unnest(case when array_length(dim2,1)>0 then dim1||dim2 else dim1 end) dims
-        from
-        (
-         select dd.version,dd.rinok,dd.entity,dd.parentrole,
-                array_agg(dd.qname||case when dd.qname||'#'||coalesce(dd3.qname,dd2.qname) is not null then '#' else '' end||coalesce(coalesce(dd3.qname,dd2.qname),'')) dim1,
-                array_remove(array_agg(distinct case when  dd3.qname is not null then dd.qname||'#'||dd2.qname end),null) dim2
-                from 
-        		(select version,rinok,entity,parentrole,qname,arcfrom,label,usable from def
-                where type_elem=2) dd
-                left join (select version,rinok,entity,parentrole,qname,arcfrom,label,usable from def
-                where type_elem=3) dd2 on dd.version=dd2.version and dd2.rinok=dd.rinok and dd2.entity=dd.entity and dd2.parentrole=dd.parentrole and dd2.arcfrom=dd.label
-                left join (select version,rinok,entity,parentrole,qname,arcfrom,label,usable from def
-                where type_elem=4) dd3 on dd3.version=dd2.version and dd2.rinok=dd3.rinok and dd2.entity=dd3.entity and dd2.parentrole=dd3.parentrole and dd3.arcfrom=dd2.label
-                group by dd.version,dd.rinok,dd.entity,dd.parentrole
-        ) dd
-        )dd
-        group by version,rinok,dd.entity,parentrole,split_part(dims,'#',1)
-		) dd 
-        group by version,rinok,entity,parentrole
-        )
+),
+dd as
+(
+WITH RECURSIVE recursive_hierarchy AS ( 
+  SELECT 
+    version,rinok,entity,parentrole,targetrole,qname AS child_qname, 
+    qname AS parent_qname,  -- Сохраняем "qname" родителя 
+    arcfrom, 
+    arcto, 
+    label, 
+    type_elem,typeddomainref
+  FROM 
+    def z
 
+  WHERE 
+    type_elem = 2  -- Начинаем с элементов типа 2 
 
-        select distinct dd.version,dd.rinok,dd.entity,parentrole,rt.definition parentrole_text,concept,array_to_string(dims,';') dimensions
+  UNION ALL 
+
+  SELECT 
+    c.version,c.rinok,c.entity,c.parentrole,c.targetrole,c.qname AS child_qname, 
+    p.parent_qname,  -- Передаем "qname" родителя 
+    c.arcfrom, 
+    c.arcto, 
+    c.label, 
+    c.type_elem,c.typeddomainref
+  FROM 
+    def c 
+  INNER JOIN 
+    recursive_hierarchy p ON c.arcfrom = p.arcto and c.version=p.version and c.rinok=p.rinok and c.entity=p.entity and c.parentrole=p.parentrole  
+  WHERE 
+    c.type_elem IN (3, 4)  -- Дети могут быть типа 3 или 4 
+)
+
+select version,rinok,entity,parentrole,string_to_array(unnest(generate_combinations(array_agg(dims))),'|') dims
+	from
+	(
+select version,rinok,entity,parentrole,targetrole,parent_qname dim,
+string_agg(parent_qname||case when child_qname=parent_qname then '' else '#' end||case when child_qname=parent_qname then '' else child_qname end,'|') dims
+FROM 
+recursive_hierarchy
+where (type_elem>2 and typeddomainref is null or type_elem>=2 and typeddomainref is not null)
+group by version,rinok,entity,parentrole,targetrole,parent_qname	
+		)dd
+group by version,rinok,entity,parentrole 	
+)
+
+  		select distinct dd.version,dd.rinok,dd.entity,parentrole,rt.definition parentrole_text,concept,dims dimension
         from
         (
-        select cc.version,cc.rinok,cc.entity,cc.parentrole,cc.qname concept,dims,array_sravn_dc2(dims,dims_minus) is_minus
+        select cc.version,cc.rinok,cc.entity,cc.parentrole,cc.qname concept,dims,
+		compare_arrays(dims,dims_minus) is_minus
         from 
         (
         select version,rinok,entity,parentrole,qname,arcfrom,label,usable,targetrole 
@@ -186,11 +208,10 @@ class date_control():
 		and d1.type_elem=5
 		group by d1.version,d1.rinok,d1.entity,d1.parentrole,d1.arcfrom
         ) tr on tr.version=cc.version and cc.rinok=tr.rinok and cc.entity=tr.entity and cc.parentrole=tr.parentrole and tr.arcfrom=cc.label
-        ) dd
+		) dd
         left join roletypes rt on rt.roleuri=dd.parentrole
         where is_minus=0
         order by version,rinok,parentrole,concept
-
         """
         self.sql_df = f"""
         select replace(entity,'.xsd','-definition.xml') entity,string_agg(distinct dim_def,';') dim_def
@@ -243,9 +264,9 @@ class date_control():
                                        xx['parentrole'] == row['parentrole']]:
                 try:
                     father = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['label'].values[0]
+                        re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['label'].values[0]
                     grandfather = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['father'].values[0]
+                        re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['father'].values[0]
                 except:
                     re_e.drop(index=indx)
                     # print(row['parentrole'], row['concept'], row['label'],row['entity'],row['father'])
@@ -262,15 +283,17 @@ class date_control():
             while row['label_up'] not in [xx['root_rulenodes'] for i, xx in tt.iterrows()]:
                 father = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['label'].values[0]
                 grandfather = \
-                re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['father'].values[0]
+                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['father'].values[0]
                 dimensions = \
-                re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['dimension'].values[0]
+                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['dimension'].values[0]
                 period_start = \
-                re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_start'].values[0]
+                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_start'].values[
+                        0]
                 period_end = \
-                re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_end'].values[0]
+                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_end'].values[0]
                 period_type = \
-                re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_type'].values[0]
+                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_type'].values[
+                        0]
                 if father:
                     dim = ";".join([dimensions, row['dimension']]) if dimensions and row[
                         'dimension'] else dimensions if dimensions else row['dimension'] if row['dimension'] else None
@@ -291,17 +314,18 @@ class date_control():
         for p, row in re_c.iterrows():
             try:
                 child_period_start = \
-                re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['period_start'].values[0]
+                    re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['period_start'].values[
+                        0]
             except:
                 child_period_start = None
             try:
                 child_period_end = \
-                re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['period_end'].values[0]
+                    re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['period_end'].values[0]
             except:
                 child_period_end = None
             try:
                 dimensions = \
-                re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['dimension'].values[0]
+                    re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['dimension'].values[0]
             except:
                 dimensions = None
             dim = ";".join([dimensions, row['dimension']]) if dimensions and row[
@@ -343,12 +367,11 @@ class date_control():
         del line_add, line_add_df
 
         #################
-        df_period = pd.DataFrame(columns=['parentrole', 'concept', 'period_start', 'period_end'])
+        columns_df_period = ['parentrole', 'concept', 'period_start', 'period_end']
+        line_df_period = []
         for i, row in re_c.iterrows():
-            # print(row['parentrole'],row['concept'],row['period_start'],row['period_end'])
-            df_period.loc[-1] = [row['parentrole'], row['concept'], row['period_start'], row['period_end']]
-            df_period.index = df_period.index + 1
-            df_period = df_period.sort_index()
+            line_df_period.append([row['parentrole'], row['concept'], row['period_start'], row['period_end']])
+        df_period = pd.DataFrame(data=line_df_period, columns=columns_df_period)
         df_period = df_period.drop_duplicates()
         df_period.sort_values(by=['parentrole', 'concept'])
         ####################
@@ -367,8 +390,8 @@ class date_control():
 
         for i, row in re_c.iterrows():
             ser_concept = \
-            re_c_agg[(re_c_agg['concept'] == row['concept']) & (re_c_agg['parentrole'] == row['parentrole'])][
-                'dimension_agg']
+                re_c_agg[(re_c_agg['concept'] == row['concept']) & (re_c_agg['parentrole'] == row['parentrole'])][
+                    'dimension_agg']
             if ser_concept.values:
                 ser_concept = [xx for xx in ser_concept if xx]
                 if ser_concept:
@@ -394,10 +417,10 @@ class date_control():
                 else:
                     None
 
-        final_df = pd.DataFrame(
-            columns=['to_sort', 'parentrole', 'concept', 'dimension', 'period_start', 'period_end', 'new_dimension',
-                     'uri_razdel', 'parentrole_agg'])
-
+        columns_final_df = ['to_sort', 'parentrole', 'concept', 'dimension', 'period_start', 'period_end',
+                            'new_dimension',
+                            'uri_razdel', 'parentrole_agg']
+        line_final_df = []
         for i, row in re_c.iterrows():
             if row['dimension']:
                 dim_concept = [row['dimension']]
@@ -416,11 +439,10 @@ class date_control():
             dim_all.sort()
             dim_final = ";".join(dim_all)
             # print(row['concept'],len(dim_final.split(';')))
-            final_df.loc[-1] = [len(dim_final.split(';')), row['parentrole'], row['concept'], dim_final,
-                                row['period_start'], row['period_end'],
-                                None, None, None]
-            final_df.index = final_df.index + 1
-            final_df = final_df.sort_index()
+            line_final_df.append([len(dim_final.split(';')), row['parentrole'], row['concept'], dim_final,
+                                  row['period_start'], row['period_end'],
+                                  None, None, None])
+        final_df = pd.DataFrame(data=line_final_df, columns=columns_final_df)
 
         # for xx,row in final_df.iterrows():
         #     print(row['concept'],row['parentrole'],len(row['dimension'].split(';')))
@@ -431,10 +453,6 @@ class date_control():
 
         # for xx,row in final_df.iterrows():
         #     print(['concept'],row['dimension'])
-
-        final_df_dd = pd.DataFrame(
-            columns=['concept', 'dimension', 'period_start', 'period_end', 'new_dimension', 'uri_razdel',
-                     'parentrole_text', 'entity'])
 
         roles_bfo_dict = {}
         with open('roles_bfo.txt', 'r') as f:
@@ -464,7 +482,8 @@ class date_control():
         # for i, row in final_df.iterrows():
         #     print('final_df - ', row['parentrole'],row['concept'],': ',row['parentrole_agg'],len(row['dimension'].split(';')),row['period_start'],row['period_end'])
 
-        dim_agg = pd.DataFrame({'dimension_agg': final_df.groupby(['parentrole_agg', 'concept'])['dimension'].aggregate(lambda x: list(x))}).reset_index()
+        dim_agg = pd.DataFrame({'dimension_agg': final_df.groupby(['parentrole_agg', 'concept'])['dimension'].aggregate(
+            lambda x: list(x))}).reset_index()
 
         for i, row in dim_agg.iterrows():
             dim_temp = []
@@ -475,124 +494,127 @@ class date_control():
 
         for i, row in final_df.iterrows():
             dim_temp = \
-            dim_agg[(dim_agg['parentrole_agg'] == row['parentrole_agg']) & (dim_agg['concept'] == row['concept'])][
-                'dimension_agg'].values[0]
-            # print('final_df - ', row['parentrole'],row['concept'],': ',row['parentrole_agg'],dim_temp)
+                dim_agg[(dim_agg['parentrole_agg'] == row['parentrole_agg']) & (dim_agg['concept'] == row['concept'])][
+                    'dimension_agg'].values[0]
             final_df['dimension'][i] = dim_temp
 
-        # for i, row in dim_agg.iterrows():
-        #     print('dim_agg - ', row['concept'],row['parentrole_agg'],len(row['dimension_agg']))
 
+        columns_final_df_dd = ['concept', 'dimension', 'period_start', 'period_end', 'new_dimension', 'uri_razdel',
+                               'parentrole_text', 'entity']
         check2 = False
-        for i, row in dd.iterrows():
-            if row['dimensions']:
-                dim1 = row['dimensions'].split(';')
-                dim1.sort()
-                dim1_clear = list(set([xx.split('#')[0] for xx in dim1]))
-                dim1_clear.sort()
-            else:
-                dim1 = []
-                dim1_clear = []
 
-            if row['parentrole'] in roles_bfo_dict.keys():
-                dd_parentrole = roles_bfo_dict.get(row['parentrole'])
-            else:
-                dd_parentrole = row['parentrole']
+        res=self.compare_dataframes(dd,final_df,roles_bfo_dict)
+        final_df_dd = pd.DataFrame(data=res, columns=columns_final_df_dd)
 
-            ser = final_df[(final_df['concept'] == row['concept'])]
 
-            # print('проверяю -- ',row['concept'],row['parentrole'])
-            check = False
-            for j, row2 in ser.iterrows():
-                if row2['dimension']:
-                    dim2 = row2['dimension']
-                    dim2.sort()
-                    dim2_clear = list(set([xx.split('#')[0] for xx in dim2]))
-                    dim2_clear.sort()
-                else:
-                    dim2 = []
-                    dim2_clear = []
 
-                if numpy.isin(dim1, dim2).all() and row2[
-                    'parentrole_agg'] in dd_parentrole:  # and row2['parentrole'] in row['parentrole']
-                    for xx in range(len(row2['period_start'])):
-                        final_df_dd.loc[-1] = [row2['concept'], row2['dimension'],
-                                               row2['period_start'][xx] if row2['period_start'][
-                                                   xx] else '$par:refPeriodEnd', row2['period_end'][xx],
-                                               row['dimensions'],
-                                               row['parentrole'], row['parentrole_text'], row['entity']]
-                        final_df_dd.index = final_df_dd.index + 1
-                        final_df_dd = final_df_dd.sort_index()
-                    check = True
-                    # break
-                # elif numpy.isin(dim1, dim2).all()==False and numpy.isin(dim1_clear, dim2_clear).all() and row2['parentrole'] in dd_parentrole: # and row2['parentrole'] in row['parentrole']
-                #     for xx in range(len(row2['period_start'])):
-                #         final_df_dd.loc[-1] = [row2['concept'], row2['dimension'],
-                #                                row2['period_start'][xx] if row2['period_start'][xx] else '$par:refPeriodEnd', row2['period_end'][xx], row['dimensions'],
-                #                                row['parentrole'], row['parentrole_text']]
-                #         final_df_dd.index = final_df_dd.index + 1
-                #         final_df_dd = final_df_dd.sort_index()
-                #     check = True
-                #     print(2,row['parentrole'], row2['parentrole'])
-                #     print(2,'dim1_clear',dim1_clear)
-                #     print(2,'dim2_clear',dim2_clear)
-                #     break
-
-                # elif row2['parentrole_agg'] in dd_parentrole:
-                #     print(row['concept'])
-                #     print('error')
-                #     print(dd_parentrole)
-                #     print(row2['parentrole_agg'])
-                #     print('row',dim1)
-                #     print('row2',dim2)
-                # else:
-                #     # print(dd_parentrole, '---', row2['parentrole'])
-                #     None
-
-            if check == False:
-                check2 = True
-                print(row['concept'])
-                print(row['dimensions'])
-                print('--ERROR--')
-                print(dd_parentrole)
-                print('---------------------')
-                final_df_dd.loc[-1] = [row['concept'], row['dimensions'],
-                                       'ERROR',
-                                       'ERROR', row['dimensions'],
-                                       row['parentrole'], row['parentrole_text'], row['entity']]
-                final_df_dd.index = final_df_dd.index + 1
-                final_df_dd = final_df_dd.sort_index()
-
-        print('сохраняю exel')
-        df_to_excel = pd.DataFrame(
-            columns=['entrypoint', 'concept', 'hypercube', 'ogrn', 'period_start', 'period_end', 'parentrole',
-                     'parentrole_text'])
+        columns_to_excel = ['entrypoint', 'concept', 'hypercube', 'ogrn', 'period_start', 'period_end', 'parentrole',
+                            'parentrole_text']
+        line_temp = []
+        len_df = len(final_df_dd)
+        l = 0
+        print("удаляю default")
         for j, yy in final_df_dd.iterrows():
+            l+=1
             dim = yy['new_dimension']
             if dim:
-                df_am = df[df['entity'] == yy['entity']]
-                dimension = self.delete_defaults(dim.split(';'), df_am)
-            else:
-                dimension = None
-            df_to_excel.loc[-1] = [ep, yy['concept'], dimension, None, yy['period_start'], yy['period_end'],
-                                   yy['uri_razdel'], yy['parentrole_text']]
-            df_to_excel.index = df_to_excel.index + 1
-            df_to_excel = df_to_excel.sort_index()
+                df_am = df[df['entity'] == yy['entity']]['dim_def']
+                if not df_am.empty:
+                    df_am = df_am.values[0].split(';')
+                else:
+                    df_am = []
+                    dim = []
+            to_remove = []
+
+            if dim and df_am:
+                for xx in self.generator_(df_am, dim):
+                    to_remove.append(xx)
+                dim = [xx for ii, xx in enumerate(dim) if xx not in to_remove]
+
+            line_temp.append(
+                [ep, yy['concept'], ';'.join(dim) if dim else None, None, yy['period_start'], yy['period_end'],
+                 yy['uri_razdel'], yy['parentrole_text']])
+            print(f"\r{l}..{len_df}", end="", flush=True)
+        print("удалил default")
+
+
+        df_to_excel = pd.DataFrame(data=line_temp, columns=columns_to_excel)
         df_to_excel = df_to_excel.drop_duplicates()
         df_to_excel = df_to_excel.sort_values(by=['entrypoint', 'parentrole', 'concept'], ignore_index=True)
         prefix = '!!!error!!!_' if check2 == True else ''
-        df_to_excel.to_excel(f"{os.getcwd()}/datecontrol/{prefix}{ep.split('/')[-1]}.xlsx", index=False)
+        print('сохраняю exel')
+        self.save_large_dataframe_to_excel(df_to_excel,f"{os.getcwd()}/datecontrol/{prefix}{ep.split('/')[-1]}.xlsx")
+        #df_to_excel.to_excel(f"{os.getcwd()}/datecontrol/{prefix}{ep.split('/')[-1]}11.xlsx", index=False)
         print('завершено')
 
-    def delete_defaults(self, arr1: list, arr2: list):
-        None
-        # try:
-        #     for xx in arr2['dim_def'].values[0].split(';'):
-        #         if xx in arr1:
-        #             arr1.remove(xx)
-        #     return ';'.join(arr1)
-        # except:
-        return None
+    def compare_dataframes(self, dataframe1, dataframe2,roles_bfo_dict):
+        print('склеиваю table и definition')
+        results = []
+        len_df=len(dataframe1)
+        i=0
+        for row1 in self.generator_dd_df(dataframe1):
+            i+=1
+            check = False
+            if row1['parentrole'] in roles_bfo_dict.keys():
+                parentrole1 = roles_bfo_dict.get(row1['parentrole'])
+            else:
+                parentrole1 = row1['parentrole']
+            dimension1 = set(row1['dimension']) if row1['dimension'] else {}
+            dimension1_clear = set(list(set([xx.split('#')[0] for xx in row1['dimension']]))) if row1['dimension'] else {}
+            ser=dataframe2[(dataframe2['concept']==row1['concept'])]
+            for row2 in self.generator_dd_df(ser):
+                dimension2 = set(row2['dimension']) if row2['dimension'] else {}
+                dimension2_clear = set(list(set([xx.split('#')[0] for xx in row2['dimension']])))  if row2['dimension'] else {}
+                if dimension2.issuperset(dimension1) and row2['parentrole_agg'] in parentrole1:
+                    check=True
+                    for xx in range(len(row2['period_start'])):
+                        results.append([row2['concept'], row2['dimension'],
+                                        row2['period_start'][xx] if row2['period_start'][
+                                            xx] else '$par:refPeriodEnd', row2['period_end'][xx],
+                                        row1['dimension'],
+                                        row1['parentrole'], row1['parentrole_text'], row1['entity']])
+                elif dimension2.issuperset(dimension1)==False and dimension2_clear.issuperset(dimension1_clear) and row2['parentrole_agg'] in parentrole1:
+                    print(parentrole1,row2['parentrole_agg'])
+                    check = True
+                    for xx in range(len(row2['period_start'])):
+                        results.append([row2['concept'], row2['dimension'],
+                                        row2['period_start'][xx] if row2['period_start'][
+                                            xx] else '$par:refPeriodEnd', row2['period_end'][xx],
+                                        row1['dimension'],
+                                        row1['parentrole'], row1['parentrole_text'], row1['entity']])
+                else:
+                    None
+            if check==False:
+                results.append([row1['concept'], row1['dimension'],
+                                   'ERROR',
+                                   'ERROR', row1['dimension'],
+                                   row1['parentrole'], row1['parentrole_text'], row1['entity']])
+            print(f"\r{i}..{len_df}", end="", flush=True)
+        print('\n')
+
+
+        return results
+
+    def generator_dd_df(self,df:pd.DataFrame):
+        for index,row in df.iterrows():
+            yield row
+
+    def generator_(self, iterable, dim):
+        iterator = iter(iterable)
+        for xx in iterator:
+            if xx in dim:
+                yield xx
+
+    def save_large_dataframe_to_excel(self,df, excel_file_path, max_rows_per_sheet=1048575):
+        num_chunks = len(df) // max_rows_per_sheet + 1
+        with pd.ExcelWriter(excel_file_path) as writer:
+            for i in range(num_chunks):
+                print(i,'сохраняю лист')
+                start_row = i * max_rows_per_sheet
+                end_row = (i + 1) * max_rows_per_sheet
+                chunk_df = df[start_row:end_row]
+                chunk_df.to_excel(writer, sheet_name=f'Sheet {i + 1}', index=False)
+        print(f'Сохранено в {excel_file_path}')
 
 
 if __name__ == "__main__":

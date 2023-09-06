@@ -19,7 +19,7 @@ class date_control():
         select distinct targetnamespace||';'||tp.entity||';'||tp.rinok data
         from tableparts tp 
         join tables t on t.version=tp.version and t.namespace=tp.uri_table and t.rinok=tp.rinok
-        where targetnamespace = '{ep}' and tp.entity not in ('EPS_chasti.xsd')
+        where targetnamespace = '{ep}' and lower(tp.entity) not like '%eps_chasti%'
         """
 
     def read_data(self):
@@ -28,10 +28,10 @@ class date_control():
 
     def do_sql(self, xsd, roles_def, rinok, ep,iskl):
         self.parentrole_table = f"""
-                (select roleuri from roletypes where entity in {xsd} and rinok='{rinok}')
+                (select roleuri from roletypes where entity in {xsd} and rinok='{rinok}' and roleuri='http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R2_P21_2')
                 """
         self.parentrole_razdel = f"""
-                (select roleuri from rolerefs where entity in {roles_def} and rinok='{rinok}' and roleuri is not null)
+                (select roleuri from rolerefs where entity in {roles_def} and rinok='{rinok}' and roleuri is not null and roleuri='http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R2_P21_2/1')
                 """
         self.sql1 = f"""
                 select version,rinok,entity,parentrole,id,label,string_agg(dimension,';') dimension,concept,period_type,
@@ -119,57 +119,75 @@ class date_control():
                 """
         null__='{NULL}'
         self.sql_def = f"""
-        
-
         with 
-          def as
-        (        select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,coalesce(e.abstract,'false') abstract,a.usable,targetrole,
+def as
+(
+	select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,coalesce(e.abstract,'false') abstract,a.usable,targetrole,
         	case when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' and coalesce(e.type,'')!='nonnum:domainItemType' then 1
         	when arcrole='http://xbrl.org/int/dim/arcrole/hypercube-dimension' then 2
         	when arcrole='http://xbrl.org/int/dim/arcrole/dimension-domain' then 3
         	when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' then 4 
         	when arcrole='http://xbrl.org/int/dim/arcrole/notAll' then 5 
-        	when arcrole='http://xbrl.org/int/dim/arcrole/all' then 0 else -1 end type_elem
+        	when arcrole='http://xbrl.org/int/dim/arcrole/all' then 0 else -1 end type_elem,
+		typeddomainref
         from locators l
         join elements e on e.id=href_id and e.version=l.version and e.rinok!='{iskl}'
         join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
         and a.arctype='definition' 
-        where l.parentrole in {self.parentrole_razdel} and lower(l.entity) not like '%eps_chasti%'
+        where l.parentrole in {self.parentrole_razdel}
         order by arcrole
-        ),
-        dd as
-        (
-        select version,rinok,entity,parentrole,string_to_array(unnest(cross_agregate(array_agg(dims))),'|') dims
-        from
-        (select version,rinok,dd.entity,parentrole,split_part(dims,'#',1) dim, 
-		array_to_string(array_agg(dims),'|') dims
-        from
-        (
-        select version,rinok,entity,parentrole,unnest(case when dim2!='{null__}' then dim1||dim2 else dim1 end) dims
-        from
-        (
-         select dd.version,dd.rinok,dd.entity,dd.parentrole,
-                array_unique(array_agg(dd.qname||case when dd.qname||'#'||coalesce(dd3.qname,dd2.qname) is not null then '#' else '' end||coalesce(coalesce(dd3.qname,dd2.qname),''))) dim1,
-                array_unique(array_agg(distinct case when dd3.qname is not null then dd.qname||'#'||dd2.qname end)) dim2
-                from 
-        		(select version,rinok,entity,parentrole,qname,arcfrom,label,usable from def
-                where type_elem=2) dd
-                left join (select version,rinok,entity,parentrole,qname,arcfrom,label,usable from def
-                where type_elem=3) dd2 on dd.version=dd2.version and dd2.rinok=dd.rinok and dd2.entity=dd.entity and dd2.parentrole=dd.parentrole and dd2.arcfrom=dd.label
-                left join (select version,rinok,entity,parentrole,qname,arcfrom,label,usable from def
-                where type_elem=4) dd3 on dd3.version=dd2.version and dd2.rinok=dd3.rinok and dd2.entity=dd3.entity and dd2.parentrole=dd3.parentrole and dd3.arcfrom=dd2.label
-                group by dd.version,dd.rinok,dd.entity,dd.parentrole
-        ) dd
-        )dd
-        group by version,rinok,dd.entity,parentrole,split_part(dims,'#',1)
-		) dd 
-        group by version,rinok,entity,parentrole
-        )
+),
+dd as
+(
+WITH RECURSIVE recursive_hierarchy AS ( 
+  SELECT 
+    version,rinok,entity,parentrole,targetrole,qname AS child_qname, 
+    qname AS parent_qname,  -- Сохраняем "qname" родителя 
+    arcfrom, 
+    arcto, 
+    label, 
+    type_elem,typeddomainref
+  FROM 
+    def z
+	
+  WHERE 
+    type_elem = 2  -- Начинаем с элементов типа 2 
+ 
+  UNION ALL 
+ 
+  SELECT 
+    c.version,c.rinok,c.entity,c.parentrole,c.targetrole,c.qname AS child_qname, 
+    p.parent_qname,  -- Передаем "qname" родителя 
+    c.arcfrom, 
+    c.arcto, 
+    c.label, 
+    c.type_elem,c.typeddomainref
+  FROM 
+    def c 
+  INNER JOIN 
+    recursive_hierarchy p ON c.arcfrom = p.arcto and c.version=p.version and c.rinok=p.rinok and c.entity=p.entity and c.parentrole=p.parentrole  
+  WHERE 
+    c.type_elem IN (3, 4)  -- Дети могут быть типа 3 или 4 
+)
 
-        select distinct dd.version,dd.rinok,dd.entity,parentrole,rt.definition parentrole_text,concept,array_to_string(dims,';') dimensions
+select version,rinok,entity,parentrole,string_to_array(unnest(generate_combinations(array_agg(dims))),'|') dims
+	from
+	(
+select version,rinok,entity,parentrole,targetrole,parent_qname dim,
+string_agg(parent_qname||case when child_qname=parent_qname then '' else '#' end||case when child_qname=parent_qname then '' else child_qname end,'|') dims
+FROM 
+recursive_hierarchy
+where (type_elem>2 and typeddomainref is null or type_elem>=2 and typeddomainref is not null)
+group by version,rinok,entity,parentrole,targetrole,parent_qname	
+		)dd
+group by version,rinok,entity,parentrole 	
+)
+
+  		select distinct dd.version,dd.rinok,dd.entity,parentrole,rt.definition parentrole_text,concept,array_to_string(dims,';') dimensions
         from
         (
-        select cc.version,cc.rinok,cc.entity,cc.parentrole,cc.qname concept,dims,array_sravn_dc2(dims,dims_minus) is_minus
+        select cc.version,cc.rinok,cc.entity,cc.parentrole,cc.qname concept,dims,
+		compare_arrays(dims,dims_minus) is_minus
         from 
         (
         select version,rinok,entity,parentrole,qname,arcfrom,label,usable,targetrole 
@@ -186,7 +204,7 @@ class date_control():
 		and d1.type_elem=5
 		group by d1.version,d1.rinok,d1.entity,d1.parentrole,d1.arcfrom
         ) tr on tr.version=cc.version and cc.rinok=tr.rinok and cc.entity=tr.entity and cc.parentrole=tr.parentrole and tr.arcfrom=cc.label
-        ) dd
+		) dd
         left join roletypes rt on rt.roleuri=dd.parentrole
         where is_minus=0
         order by version,rinok,parentrole,concept
@@ -448,8 +466,6 @@ class date_control():
                 final_df['parentrole_agg'][xx] = 'http://www.cbr.ru/xbrl/bfo/rep/2023-03-31/tab/FR_4_003_05a_01_39'
             elif se['parentrole'] == 'http://www.cbr.ru/xbrl/bfo/rep/2023-03-31/tab/FR_3_006_01a_01_39_LastQuarter':
                 final_df['parentrole_agg'][xx] = 'http://www.cbr.ru/xbrl/bfo/rep/2023-03-31/tab/FR_3_006_01a_01_39'
-            # elif se['parentrole'] == 'http://www.cbr.ru/xbrl/bfo/rep/2023-03-31/tab/1_FR_BS_NPF_AO_39_retrospective':
-            #     final_df['parentrole_agg'][xx] = 'http://www.cbr.ru/xbrl/bfo/rep/2023-03-31/tab/1_FR_BS_NPF_AO_39'
             else:
                 final_df['parentrole_agg'][xx] = se['parentrole']
 
@@ -499,7 +515,8 @@ class date_control():
 
             # print('проверяю -- ',row['concept'],row['parentrole'])
             check = False
-
+            if ser.empty:
+                continue
             for j, row2 in ser.iterrows():
                 if row2['dimension']:
                     dim2 = row2['dimension']
@@ -510,8 +527,7 @@ class date_control():
                     dim2 = []
                     dim2_clear = []
 
-                if numpy.isin(dim1, dim2).all() and row2[
-                    'parentrole_agg'] in dd_parentrole:  # and row2['parentrole'] in row['parentrole']
+                if numpy.isin(dim1, dim2).all() and row2['parentrole_agg'] in dd_parentrole:  # and row2['parentrole'] in row['parentrole']
                     for xx in range(len(row2['period_start'])):
                         line_final_df_dd.append([row2['concept'], row2['dimension'],
                                                row2['period_start'][xx] if row2['period_start'][
@@ -519,9 +535,18 @@ class date_control():
                                                row['dimensions'],
                                                row['parentrole'], row['parentrole_text'], row['entity']])
                     check = True
-                    # break
-            final_df_dd=pd.DataFrame(data=line_final_df_dd,columns=columns_final_df_dd)
-
+                    break
+                elif row2['parentrole_agg'] in dd_parentrole and numpy.isin(dim1_clear, dim2_clear).all():
+                    # print(dim2,'нет мембера')
+                    for xx in range(len(row2['period_start'])):
+                        line_final_df_dd.append([row2['concept'], row2['dimension'],
+                                                 row2['period_start'][xx] if row2['period_start'][
+                                                     xx] else '$par:refPeriodEnd', row2['period_end'][xx],
+                                                 row['dimensions'],
+                                                 row['parentrole'], row['parentrole_text'], row['entity']])
+                    check = True
+                    break
+            error_line=[]
             if check == False:
                 check2 = True
                 print(row['concept'])
@@ -529,12 +554,14 @@ class date_control():
                 print('--ERROR--')
                 print(dd_parentrole)
                 print('---------------------')
-                final_df_dd.loc[-1] = [row['concept'], row['dimensions'],
+                error_line.append([row['concept'], row['dimensions'],
                                        'ERROR',
                                        'ERROR', row['dimensions'],
-                                       row['parentrole'], row['parentrole_text'], row['entity']]
-                final_df_dd.index = final_df_dd.index + 1
-                final_df_dd = final_df_dd.sort_index()
+                                       row['parentrole'], row['parentrole_text'], row['entity']])
+
+            final_df_dd = pd.DataFrame(data=line_final_df_dd+error_line, columns=columns_final_df_dd)
+
+
 
         print('сохраняю exel')
 
