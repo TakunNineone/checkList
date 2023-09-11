@@ -573,8 +573,9 @@ group by version,rinok,entity,parentrole
                                             xx] else '$par:refPeriodEnd', row2['period_end'][xx],
                                         row1['dimension'],
                                         row1['parentrole'], row1['parentrole_text'], row1['entity']])
+                    break
                 elif dimension2.issuperset(dimension1)==False and dimension2_clear.issuperset(dimension1_clear) and row2['parentrole_agg'] in parentrole1:
-                    print(parentrole1,row2['parentrole_agg'])
+                    # print(parentrole1,row2['parentrole_agg'])
                     check = True
                     for xx in range(len(row2['period_start'])):
                         results.append([row2['concept'], row2['dimension'],
@@ -582,6 +583,7 @@ group by version,rinok,entity,parentrole
                                             xx] else '$par:refPeriodEnd', row2['period_end'][xx],
                                         row1['dimension'],
                                         row1['parentrole'], row1['parentrole_text'], row1['entity']])
+                    break
                 else:
                     None
             if check==False:
@@ -618,9 +620,9 @@ group by version,rinok,entity,parentrole
 
 
 if __name__ == "__main__":
-    ep = 'http://www.cbr.ru/xbrl/bfo/rep/2023-03-31/ep/ep_npf_ao_y_39'
+    ep = 'http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/ep/ep_SSDNEMED_10rd_sr_m'
     ss = date_control(ep)
     xsds = ["'" + row['data'].split(';')[1] + "'" for xx, row in ss.read_data().iterrows()]
     xsds_str = '(' + ",".join(xsds) + ')'
     roles_def = xsds_str.replace('.xsd', '-definition.xml')
-    ss.do_sql(xsds_str, roles_def, 'bfo', ep,'eps')
+    ss.do_sql(xsds_str, roles_def, 'ins', ep,'')
