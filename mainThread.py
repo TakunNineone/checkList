@@ -7,6 +7,8 @@ class checkList():
     def __init__(self):
         self.result_list=[]
         self.query_resul=[]
+        self.version='final_5_2_b'
+        self.path='checkList.xlsx'
 
     def connect_to_bd(self):
         conn = psycopg2.connect(user="postgres",
@@ -43,20 +45,24 @@ class checkList():
             for xx in query_result:
                 xx[0].to_excel(writer,index=False,sheet_name=str(xx[1]))
 
-    def openCheckList(self,path,version):
-        xlsx = pd.ExcelFile(path)
+    def openCheckList(self,row):
+        sql=row[0].replace('HID', f"'{self.version}'")
+        id=row[1]
+        text=row[2]
+        self.do_sql(sql,id,text)
+
+    def startThread(self):
+        xlsx = pd.ExcelFile(self.path)
         df = xlsx.parse(xlsx.sheet_names[0])
         xlsx.close()
-        for index, row in df.iterrows():
-            sql=row['SQL'].replace('HID', f"'{version}'")
-            id=row['ID']
-            text=row['TEXT']
-            self.do_sql(sql,id,text)
+        temp_rows=[]
+        for index,row in df.iterrows():
+            temp_rows.append([row['SQL'],row['ID'],row['TEXT']])
+        with ThreadPool(processes=3) as pool:
+            pool.map(self.openCheckList, temp_rows)
 
 
 if __name__ == "__main__":
-    path='checkList.xlsx'
-    version='final_5_2_b'
     ss=checkList()
-    ss.openCheckList(path,version)
+    ss.startThread()
     ss.save_to_excel(ss.result_list,ss.query_resul)

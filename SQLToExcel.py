@@ -6,7 +6,7 @@ def do_sql(sql):
                                password="124kosm21",
                                host="127.0.0.1",
                                port="5432",
-                               database="final_5_30_2")
+                               database="final_5_2_b")
     df = pd.read_sql_query(sql, connect)
     connect.close()
     gc.collect()
@@ -154,13 +154,79 @@ group by version,rinok,entity,parentrole
 
 """
 sql_1="""
-select r.version,r.rinok,r.entity,r.parentrole,rc.value,count(distinct r.id) cnt_rulenodes,string_agg(distinct r.id,';') rulenodes
+with rn_t as
+(
+select r.version,r.rinok,r.entity,r.parentrole,r.id,r.label,re.dimension||'|'||re.member dimension,
+rc.value value,tagselector,merge,abstract,rp.start per_start,rp.end per_end
 from rulenodes r
-join rulenodes_c rc on rc.version=r.version and rc.entity=r.entity and rc.rinok=r.rinok and rc.parentrole=r.parentrole and rc.rulenode_id=r.id
-group by r.version,r.rinok,r.entity,r.parentrole,rc.value
-having count(distinct r.id)>1
+left join rulenodes_e re on re.version=r.version and re.rinok=r.rinok and re.entity=r.entity and re.parentrole=r.parentrole
+and re.rulenode_id=r.id
+left join rulenodes_c rc on rc.version=r.version and rc.rinok=r.rinok and rc.entity=r.entity and rc.parentrole=r.parentrole
+and rc.rulenode_id=r.id
+left join rulenodes_p rp on rp.version=r.version and rp.rinok=r.rinok and rp.entity=r.entity and rp.parentrole=r.parentrole
+and rp.rulenode_id=r.id
+--where r.parentrole='http://www.cbr.ru/xbrl/nso/uk/rep/2023-03-31/tab/SR_0420513_R3'
+),
+root_rn as
+(
+select rn.version,rn.rinok,rn.entity,rn.parentrole,array_agg(label) root_rulenodes
+from rn_t rn
+join arcs a on rn.version=a.version and rn.rinok=a.rinok and rn.entity=a.entity and rn.parentrole=a.parentrole
+and rn.label=a.arcto 
+where a.arcrole='http://xbrl.org/arcrole/2014/breakdown-tree'
+and dimension is null and value is null and per_start is null and per_end is null and tagselector is null
+group by rn.version,rn.rinok,rn.entity,rn.parentrole
+),
+rn as 
+(
+select rn_t.*,coalesce(root_rulenodes,array['no']) root_rulenodes from rn_t
+left join root_rn using (version,rinok,entity,parentrole)
+),
+
+rn_arr as
+(
+select 
+a5.arcfrom a5,a4.arcfrom a4,a3.arcfrom a3,a2.arcfrom a2,a1.arcfrom a1,label,root_rulenodes,tagselector,
+rn.version,rn.rinok,rn.entity,rn.parentrole,dimension,value concept,per_start,per_end
+from rn
+left join arcs a1 on a1.version=rn.version and a1.rinok=rn.rinok and a1.entity=rn.entity
+and a1.parentrole=rn.parentrole and a1.arcto=rn.label and a1.arcrole='http://xbrl.org/arcrole/2014/definition-node-subtree'
+left join arcs a2 on a2.version=rn.version and a2.rinok=rn.rinok and a2.entity=rn.entity
+and a2.parentrole=rn.parentrole and a2.arcto=a1.arcfrom and a2.arcrole='http://xbrl.org/arcrole/2014/definition-node-subtree'
+left join arcs a3 on a3.version=rn.version and a3.rinok=rn.rinok and a3.entity=rn.entity
+and a3.parentrole=rn.parentrole and a3.arcto=a2.arcfrom and a3.arcrole='http://xbrl.org/arcrole/2014/definition-node-subtree'
+left join arcs a4 on a4.version=rn.version and a4.rinok=rn.rinok and a4.entity=rn.entity
+and a4.parentrole=rn.parentrole and a4.arcto=a3.arcfrom and a4.arcrole='http://xbrl.org/arcrole/2014/definition-node-subtree'
+left join arcs a5 on a5.version=rn.version and a5.rinok=rn.rinok and a5.entity=rn.entity
+and a5.parentrole=rn.parentrole and a5.arcto=a4.arcfrom and a5.arcrole='http://xbrl.org/arcrole/2014/definition-node-subtree'
+)
+
+
+
+select version "Версия",rinok "Рынок",entity "Файл",parentrole "Раздел",opis "Значения",
+string_agg(group_rulenode,' | ') "Рулноды",
+opis "Состав рулнода",count(*) "Кол-во повторений"
+from
+(
+select version,rinok,entity,parentrole,group_rulenode,
+array_agg(label),
+array_unique(array_agg(dimension)||array_agg(concept)||array_agg(per_start)||array_agg(per_end)||array_agg(tagselector)) opis
+from
+(
+select 
+ coalesce(coalesce(coalesce(coalesce(case when a5 = any (root_rulenodes) then null else a5 end,case when a4 = any (root_rulenodes) then null else a4 end),
+ case when a3 = any (root_rulenodes) then null else a3 end),case when a2 = any (root_rulenodes) then null else a2 end),
+ case when a1 = any (root_rulenodes) or a1 is null then label else a1 end) group_rulenode,rn_arr.*
+from rn_arr
+) gr
+where group_rulenode is not null
+group by version,rinok,entity,parentrole,group_rulenode
+) z
+-- where version=HID
+group by version,rinok,entity,parentrole,opis
+having count(*)>1 and opis!='{}'
 """
-df=do_sql(sql_bfo)
-save_to_excel(df,sql_bfo,'дубли точек данных - 2')
+df=do_sql(sql_1)
+save_to_excel(df,sql_1,'проверка 67')
 
 
