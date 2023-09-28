@@ -7,15 +7,15 @@ class checkList():
     def __init__(self):
         self.result_list=[]
         self.query_resul=[]
-        self.version='final_5_2_b'
+        self.version='final_6_3'
         self.path='checkList.xlsx'
-
+        self.count=0
     def connect_to_bd(self):
         conn = psycopg2.connect(user="postgres",
                                  password="124kosm21",
                                  host="127.0.0.1",
                                  port="5432",
-                                 database="final_5_2_broken")
+                                 database="final_6_3")
         return conn
 
 
@@ -25,8 +25,8 @@ class checkList():
                                 password="124kosm21",
                                 host="127.0.0.1",
                                 port="5432",
-                                database="final_5_2_broken")
-        print(id,text)
+                                database="final_6_3")
+        # print(id,'зупущено',text)
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
             self.query_resul.append([dat,id])
@@ -35,12 +35,16 @@ class checkList():
             self.result_list.append({'ID':id,'TEXT':text,'RESULT':'OK'})
         connect.close()
         del dat
+        self.count += 1
+        print(id,'завершено',self.count, text)
+
+        print(self.count)
         gc.collect()
 
 
     def save_to_excel(self,result_list,query_result):
         res_pd=pd.DataFrame(result_list)
-        with pd.ExcelWriter("final_5_2_broken_checkList_result.xlsx") as writer:
+        with pd.ExcelWriter("final_6(3)_checkList_result.xlsx") as writer:
             res_pd.to_excel(writer,index=False,sheet_name='result')
             for xx in query_result:
                 xx[0].to_excel(writer,index=False,sheet_name=str(xx[1]))
@@ -58,9 +62,9 @@ class checkList():
         temp_rows=[]
         for index,row in df.iterrows():
             temp_rows.append([row['SQL'],row['ID'],row['TEXT']])
-        with ThreadPool(processes=3) as pool:
+        with ThreadPool(processes=2) as pool:
             pool.map(self.openCheckList, temp_rows)
-
+        print(111)
 
 if __name__ == "__main__":
     ss=checkList()

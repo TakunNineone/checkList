@@ -13,7 +13,7 @@ class checkList():
                                  password="124kosm21",
                                  host="127.0.0.1",
                                  port="5432",
-                                 database="final_5_2_b")
+                                 database="final_6_3")
         return conn
 
 
@@ -23,7 +23,7 @@ class checkList():
                                 password="124kosm21",
                                 host="127.0.0.1",
                                 port="5432",
-                                database="final_5_2_b")
+                                database="final_6_3")
         print(id,text)
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
@@ -38,7 +38,7 @@ class checkList():
 
     def save_to_excel(self,result_list,query_result):
         res_pd=pd.DataFrame(result_list)
-        with pd.ExcelWriter("final_5_2_b_checkList_result.xlsx") as writer:
+        with pd.ExcelWriter("final_6_3_checkList_result.xlsx") as writer:
             res_pd.to_excel(writer,index=False,sheet_name='result')
             for xx in query_result:
                 xx[0].to_excel(writer,index=False,sheet_name=str(xx[1]))
@@ -56,7 +56,7 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_5_2_b2'
+    version='final_6_3'
     ss=checkList()
     ss.openCheckList(path,version)
     ss.save_to_excel(ss.result_list,ss.query_resul)
