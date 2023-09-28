@@ -2,7 +2,17 @@ import psycopg2,warnings,gc
 import pandas as pd
 warnings.filterwarnings("ignore")
 from multiprocessing.pool import ThreadPool
+import datetime
 
+
+def timer(func):
+    def _wrapper(*args, **kwargs):
+        start = datetime.datetime.now()
+        func(*args, **kwargs)
+        stop = datetime.datetime.now()
+        time_delta = stop - start
+        print(f'{args[2]}|{args[3]}|{time_delta}')
+    return _wrapper
 class checkList():
     def __init__(self):
         self.name_result = "final_6_3_checkList_result.xlsx"
@@ -18,14 +28,14 @@ class checkList():
         return conn
 
 
-
+    @timer
     def do_sql(self,sql,id,text):
         connect = psycopg2.connect(user="postgres",
                                 password="124kosm21",
                                 host="127.0.0.1",
                                 port="5432",
                                 database="final_6_3")
-        print(id,text)
+
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
             self.query_resul.append([dat,id])
