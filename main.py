@@ -5,6 +5,7 @@ from multiprocessing.pool import ThreadPool
 
 class checkList():
     def __init__(self):
+        self.name_result = "final_6_3_checkList_result.xlsx"
         self.result_list=[]
         self.query_resul=[]
 
@@ -28,7 +29,10 @@ class checkList():
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
             self.query_resul.append([dat,id])
-            self.result_list.append({'ID': id, 'TEXT': text, 'RESULT': 'FAIL'})
+            self.result_list.append({'ID': id,
+                                     'TEXT': text,
+                                     'RESULT': f'=HYPERLINK("[{self.name_result}]{id}!A1", "FAIL")',
+                                    })
         else:
             self.result_list.append({'ID':id,'TEXT':text,'RESULT':'OK'})
         connect.close()
@@ -38,7 +42,7 @@ class checkList():
 
     def save_to_excel(self,result_list,query_result):
         res_pd=pd.DataFrame(result_list)
-        with pd.ExcelWriter("final_6_3_checkList_result.xlsx") as writer:
+        with pd.ExcelWriter(self.name_result) as writer:
             res_pd.to_excel(writer,index=False,sheet_name='result')
             for xx in query_result:
                 xx[0].to_excel(writer,index=False,sheet_name=str(xx[1]))
