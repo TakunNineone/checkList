@@ -25,7 +25,7 @@ class checkList():
     def connect_to_bd(self):
         conn = psycopg2.connect(user="postgres",
                                  password="124kosm21",
-                                 host="192.168.174.104",
+                                 host="127.0.0.1",
                                  port="5432",
                                  database="final_6_3")
         return conn
@@ -34,7 +34,7 @@ class checkList():
     def do_sql(self,sql,id,text):
         connect = psycopg2.connect(user="postgres",
                                 password="124kosm21",
-                                host="192.168.174.104",
+                                host="127.0.0.1",
                                 port="5432",
                                 database="final_6_3")
 
