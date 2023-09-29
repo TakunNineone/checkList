@@ -19,7 +19,7 @@ class date_control():
 
     def do_sql(self):
         self.parentrole_table = f"""
-                (select distinct uri_table from tableparts)
+                (select distinct uri_table from tableparts where uri_table='http://www.cbr.ru/xbrl/bfo/rep/2024-11-01/tab/FR_2_055_01b_01')
                 """
 
         self.sql1 = f"""
@@ -213,10 +213,11 @@ class date_control():
                     'end'].values
             except:
                 end = None
-            # print(row['concept'],row['period_type'],row['period_start'],start,end)
-            if not row['period_start'] and start != []:
-                re_c['period_start'][p] = start[0]
-                re_c['period_end'][p] = end[0]
+            print(row['concept'],row['period_type'],row['period_start'],start,end)
+            if row['period_start']==None and start != []:
+                print(1111111111)
+                re_c['period_start'] = start
+                re_c['period_end'] = end
 
                 for xx in range(1, len(start)):
                     line_add.append(
@@ -230,6 +231,11 @@ class date_control():
                                             'is_child', 'label_up'])
         re_c = pd.concat([re_c, line_add_df]).reset_index(drop=True)
         del line_add, line_add_df
+
+
+        for ii,row in re_c.iterrows():
+            print(row['parentrole'],row['concept'],row['period_start'],row['period_end'])
+
 
         #################
         columns_df_period = ['parentrole', 'concept', 'period_start', 'period_end']

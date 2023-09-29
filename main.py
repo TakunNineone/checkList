@@ -27,7 +27,7 @@ class checkList():
                                  password="124kosm21",
                                  host="127.0.0.1",
                                  port="5432",
-                                 database="final_6_3")
+                                 database="final_6_5")
         return conn
 
     @timer
@@ -36,7 +36,7 @@ class checkList():
                                 password="124kosm21",
                                 host="127.0.0.1",
                                 port="5432",
-                                database="final_6_3")
+                                database="final_6_5")
 
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
@@ -53,8 +53,8 @@ class checkList():
 
     def save_to_excel(self,result_list,query_result):
         res_pd = pd.DataFrame(result_list)
-        res_pd = res_pd.astype({'ID': int}).sort_values(by=['RESULT','ID'])
-        res_pd = res_pd.style.applymap(lambda x: "background-color: yellow" if 'FAIL' in x else None, subset=['RESULT'])
+        # res_pd = res_pd.astype({'ID': float}).sort_values(by=['RESULT','ID'])
+        # res_pd = res_pd.style.applymap(lambda x: "background-color: yellow" if 'FAIL' in x else None, subset=['RESULT'])
         with pd.ExcelWriter(self.name_result) as writer:
             res_pd.to_excel(writer,index=False,sheet_name='result')
             for xx in query_result:
@@ -89,9 +89,11 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_6_3'
-    cnt_process = 5 #кол-во потоков
+    version='final_6_5'
+    cnt_process = 7 #кол-во потоков
     ss=checkList(version)
+    print('Запуск - ',datetime.datetime.now())
     ss.startThread(path,version, cnt_process) #многопотоков
    # ss.openCheckList() #однопоточный
     ss.save_to_excel(ss.result_list,ss.query_resul)
+    print('Завершено - ', datetime.datetime.now())
