@@ -53,8 +53,8 @@ class checkList():
 
     def save_to_excel(self,result_list,query_result):
         res_pd = pd.DataFrame(result_list)
-        # res_pd = res_pd.astype({'ID': float}).sort_values(by=['RESULT','ID'])
-        # res_pd = res_pd.style.applymap(lambda x: "background-color: yellow" if 'FAIL' in x else None, subset=['RESULT'])
+        res_pd = res_pd.astype({'ID': float}).sort_values(by=['RESULT','ID'])
+        res_pd = res_pd.style.applymap(lambda x: "background-color: yellow" if 'FAIL' in x else None, subset=['RESULT'])
         with pd.ExcelWriter(self.name_result) as writer:
             res_pd.to_excel(writer,index=False,sheet_name='result')
             for xx in query_result:

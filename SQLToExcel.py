@@ -6,7 +6,7 @@ def do_sql(sql):
                                password="124kosm21",
                                host="127.0.0.1",
                                port="5432",
-                               database="final_6_3")
+                               database="final_6_5")
     df = pd.read_sql_query(sql, connect)
     connect.close()
     gc.collect()
@@ -18,33 +18,48 @@ def save_to_excel(df,sql,name):
         df_sql=pd.DataFrame({'sql':[sql]})
         df_sql.to_excel(writer,index=False,sheet_name='SQL')
 sql_1="""
-select distinct e.version "Версия",e.rinok "Рынок",e.entity "Файл элемента с паттерном",dd.entity "Файл таблицы",uri_razdel "URI definition",
-taxis "Ось (для typedName)",elem "Элемент с паттерном",substitutiongroup "Тип",e.minlength,e.pattern,round_skobka "Баланс круглых скобок",square_skobka "Баланс квадратных скобок"
-from
+with pp_t as
 (
-select coalesce(ee.id,e.id) all_id,e.version,e.rinok,e.entity,ee.qname taxis,e.qname elem,substitutiongroup,e.minlength,e.pattern,round_skobka,square_skobka
-from
-(
-select version,rinok,entity,id,qname,
-substitutiongroup "Тип",minlength,pattern,
-length(replace(pattern,'(','')) = length(replace(pattern,')','')) round_skobka,
-length(replace(pattern,'[','')) = length(replace(pattern,']','')) square_skobka
-from elements where pattern is not null
-) e 
-left join elements ee on e.id=split_part(ee.typeddomainref,'#',-1) and e.version=ee.version
-) e
-left join 
-(
-select a.version,a.entity,a.rinok,a.parentrole uri_razdel,l.href_id 
+select distinct parentrole uri
+from arcs a
+where arctype='presentation'  --and a.version=HID
+),
+dd as (
+select a.version,a.entity,a.rinok,a.parentrole,l.href_id
 from arcs a
 join locators l on l.label=a.arcto and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole 
-where arctype='definition'
-) dd on dd.version=e.version and dd.href_id=e.all_id
-order by uri_razdel nulls last,taxis nulls last
+where arctype='definition' 
+and a.parentrole in (select * from pp_t)
+	order by a.version,a.entity,a.rinok,a.parentrole
+),
+pp as
+(
+select a.version,a.entity,a.rinok,a.parentrole,l.href_id 
+from arcs a
+join locators l on l.label=a.arcto and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole 
+where arctype='presentation'  
+	order by a.version,a.entity,a.rinok,a.parentrole
+) 
 
+select version "Версия",max(rinok_def) "Рынок роли def",max(rinok_pres) "Рынок роли pres",parentrole "Роль",href_id "Элемент",max(def) "Файл def",max(pres) "Файл pres"
+from
+(
+select version,dd.rinok rinok_def,null rinok_pres,parentrole,href_id,dd.entity def,null pres
+from dd
+left join pp using (version,rinok,parentrole,href_id)
+where pp.entity is null
+
+union all
+
+select version,null,pp.rinok,parentrole,href_id,null,pp.entity 
+from pp
+left join dd using (version,rinok,parentrole,href_id)
+where dd.entity is null
+) dp 
+group by version,parentrole,href_id
 
 """
 df=do_sql(sql_1)
-save_to_excel(df,sql_1,'64.')
+save_to_excel(df,sql_1,'61.')
 
 

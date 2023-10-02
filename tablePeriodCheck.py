@@ -1,7 +1,7 @@
 import numpy,openpyxl
 import numpy as np
 import psycopg2, warnings, gc, os
-import pandas as pd
+import pandas as pd,jinja2
 
 warnings.filterwarnings("ignore")
 
@@ -14,13 +14,11 @@ class date_control():
                                         password="124kosm21",
                                         host="127.0.0.1",
                                         port="5432",
-                                        database="final_6_2")
+                                        database="final_5_2")
 
 
     def do_sql(self):
-        self.parentrole_table = f"""
-                (select distinct uri_table from tableparts where uri_table='http://www.cbr.ru/xbrl/bfo/rep/2024-11-01/tab/FR_2_055_01b_01')
-                """
+        self.rinok="""(select distinct rinok from tableparts)"""
 
         self.sql1 = f"""
                 select version,rinok,entity,parentrole,id,label,string_agg(dimension,';') dimension,concept,period_type,
@@ -55,7 +53,7 @@ class date_control():
                 left join rulenodes_p rp on rp.version=r.version and rp.rinok=r.rinok and rp.entity=r.entity and rp.parentrole=r.parentrole
                 and rp.rulenode_id=r.id
                 left join elements e on e.qname=rc.value and e.version=rc.version
-                where r.parentrole in {self.parentrole_table} 
+                where r.rinok in {self.rinok} 
                 --and r.parentrole in ('http://www.cbr.ru/xbrl/nso/uk/rep/2023-03-31/tab/sr_0420503_R3')
                 order by concept
                 ) r
@@ -67,7 +65,7 @@ class date_control():
                 (
                 select rs.*,case when per_start is not null then 'duration' else 'instant' end p_type 
                 from rulesets rs
-                	where parentrole in {self.parentrole_table} 
+                	where rinok in {self.rinok} 
                 	--and parentrole in ('http://www.cbr.ru/xbrl/nso/uk/rep/2023-03-31/tab/sr_0420503_R3')
                 ) rs
                 ) rs on rs.version=r.version and rs.rinok=r.rinok and rs.entity=r.entity and rs.parentrole=r.parentrole and rs.tag=r.tagselector and rs.p_type=r.period_type
@@ -81,7 +79,7 @@ class date_control():
                 from aspectnodes an
                 left join arcs a on a.version=an.version and a.rinok=an.rinok and a.entity=an.entity and a.parentrole=an.parentrole and a.arcfrom=an.label  
                 left join arcs a2 on a2.version=an.version and a2.rinok=an.rinok and a2.entity=an.entity and a2.parentrole=an.parentrole and a2.arcto=an.label  
-                where an.parentrole in {self.parentrole_table} 
+                where an.rinok in {self.rinok} 
                 --and an.parentrole in ('http://www.cbr.ru/xbrl/nso/uk/rep/2023-03-31/tab/sr_0420503_R3')
                 ) r group by version,rinok,entity,parentrole,id,label,concept,period_type,
                 tag,period_start,period_end,father,is_child
@@ -95,7 +93,7 @@ class date_control():
                 join arcs a on a.version=t.version and a.rinok=t.rinok and a.entity=t.entity and a.parentrole=t.parentrole and a.arcto=t.label
                 and a.arcrole='http://xbrl.org/arcrole/2014/table-breakdown'
                 where rolefrom='breakdown'
-                and t.parentrole in {self.parentrole_table}
+                and t.rinok in {self.rinok}
                 ) t 
                 join arcs a on a.version=t.version and a.rinok=t.rinok and a.entity=t.entity and a.parentrole=t.parentrole and a.arcfrom=t.br_label
                 order by t.version,t.rinok,t.entity,t.parentrole,a.arcto
@@ -104,7 +102,7 @@ class date_control():
                 	select distinct rn.version,rn.rinok,rn.entity,rn.parentrole,period_type,rp.start,rp.end 
                 	from rulenodes rn
                 	join rulenodes_p rp on rp.version=rn.version and rp.rinok=rn.rinok and rp.entity=rn.entity and rp.parentrole=rn.parentrole and rp.rulenode_id=rn.id
-                	where rn.parentrole in {self.parentrole_table}
+                	where rn.rinok in {self.rinok}
                 """
 
         with open('table.txt', 'w') as f:
@@ -128,10 +126,8 @@ class date_control():
             while row['label'] not in [xx['root_rulenodes'] for i, xx in tt.iterrows() if
                                        xx['parentrole'] == row['parentrole']]:
                 try:
-                    father = \
-                        re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['label'].values[0]
-                    grandfather = \
-                        re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['father'].values[0]
+                    father = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['label'].values[0]
+                    grandfather = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['father'].values[0]
                 except:
                     re_e.drop(index=indx)
                     # print(row['parentrole'], row['concept'], row['label'],row['entity'],row['father'])
@@ -147,50 +143,35 @@ class date_control():
         for indx, row in re_c.iterrows():
             while row['label_up'] not in [xx['root_rulenodes'] for i, xx in tt.iterrows()]:
                 father = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['label'].values[0]
-                grandfather = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['father'].values[0]
-                dimensions = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['dimension'].values[0]
-                period_start = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_start'].values[
-                        0]
-                period_end = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_end'].values[0]
-                period_type = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_type'].values[
-                        0]
+                grandfather = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['father'].values[0]
+                dimensions = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['dimension'].values[0]
+                period_start = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_start'].values[0]
+                period_end = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_end'].values[0]
+                period_type = re[(re['parentrole'] == row['parentrole']) & (re['label'] == row['father'])]['period_type'].values[0]
                 if father:
                     dim = ";".join([dimensions, row['dimension']]) if dimensions and row[
                         'dimension'] else dimensions if dimensions else row['dimension'] if row['dimension'] else None
                     row['label_up'] = father
                     row['father'] = grandfather
-                    row['period_type'] = row['period_type'] if row[
-                        'period_type'] else period_type if period_type else None
+                    row['period_type'] = row['period_type'] if row['period_type'] else period_type if period_type else None
                     if row['period_start'] == None:
                         re_c['period_start'][indx] = period_start
                     if row['period_end'] == None:
                         re_c['period_end'][indx] = period_end
                     row['dimension'] = dim
 
-        # for i,row in re_e.iterrows():
-        #     print(row['parentrole'],row['label'],row['dimension'])
-        # print('|||||||||||||||||||||||||||||||||||||')
 
         for p, row in re_c.iterrows():
             try:
-                child_period_start = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['period_start'].values[
-                        0]
+                child_period_start = re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['period_start'].values[0]
             except:
                 child_period_start = None
             try:
-                child_period_end = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['period_end'].values[0]
+                child_period_end = re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['period_end'].values[0]
             except:
                 child_period_end = None
             try:
-                dimensions = \
-                    re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['dimension'].values[0]
+                dimensions = re[(re['parentrole'] == row['parentrole']) & (re['father'] == row['label'])]['dimension'].values[0]
             except:
                 dimensions = None
             dim = ";".join([dimensions, row['dimension']]) if dimensions and row[
@@ -200,90 +181,26 @@ class date_control():
             if child_period_end: re_c['period_end'][p] = child_period_end
             re_c['dimension'][p] = dim
 
-        line_add = []
         for p, row in re_c.iterrows():
             try:
-                start = pp[(pp['parentrole'] == row['parentrole']) & (pp['period_type'] == row['period_type'])][
-                    'start'].values
+                start = pp[(pp['parentrole'] == row['parentrole']) & (pp['period_type'] == row['period_type'])]['start'].values
             except:
                 start = None
-            # print(row['concept'],row['label'],start)
             try:
-                end = pp[(pp['parentrole'] == row['parentrole']) & (pp['period_type'] == row['period_type'])][
-                    'end'].values
+                end = pp[(pp['parentrole'] == row['parentrole']) & (pp['period_type'] == row['period_type'])]['end'].values
             except:
                 end = None
-            print(row['concept'],row['period_type'],row['period_start'],start,end)
-            if row['period_start']==None and start != []:
-                print(1111111111)
-                re_c['period_start'] = start
-                re_c['period_end'] = end
-
-                for xx in range(1, len(start)):
-                    line_add.append(
-                        [row['version'], row['rinok'], row['entity'], row['parentrole'], row['id'], row['label'],
-                         row['dimension'],
-                         row['concept'], row['period_type'], row['tag'], start[xx], end[xx], row['father'],
-                         row['is_child'], row['label_up']])
-        line_add_df = pd.DataFrame(data=line_add,
-                                   columns=['version', 'rinok', 'entity', 'parentrole', 'id', 'label', 'dimension',
-                                            'concept', 'period_type', 'tag', 'period_start', 'period_end', 'father',
-                                            'is_child', 'label_up'])
-        re_c = pd.concat([re_c, line_add_df]).reset_index(drop=True)
-        del line_add, line_add_df
-
+            start=list(set(start))
+            end=list(set(end))
+            if start!=[] and row['period_start']==None:
+                print(start)
+                print(end)
+                re_c['period_start'][p] = ';'.join(start) if start!=[None] else ''
+                re_c['period_end'][p] = ';'.join(end) if end!=[None] else ''
 
         for ii,row in re_c.iterrows():
-            print(row['parentrole'],row['concept'],row['period_start'],row['period_end'])
+            print('re_c',row['parentrole'],row['concept'],row['period_start'],row['period_end'])
 
-
-        #################
-        columns_df_period = ['parentrole', 'concept', 'period_start', 'period_end']
-        line_df_period = []
-        for i, row in re_c.iterrows():
-            line_df_period.append([row['parentrole'], row['concept'], row['period_start'], row['period_end']])
-        df_period = pd.DataFrame(data=line_df_period, columns=columns_df_period)
-        df_period = df_period.drop_duplicates()
-        df_period.sort_values(by=['parentrole', 'concept'])
-        ####################
-        re_c_agg = pd.DataFrame({'dimension_agg':
-                                     re_c[re_c['dimension'].isnull() == False].groupby(['parentrole', 'concept'])[
-                                         'dimension'].aggregate(lambda x: list(x))}).reset_index()
-        re_c_agg_per = pd.DataFrame(
-            {'start_agg': re_c.groupby(['parentrole', 'concept'])['period_start'].aggregate(lambda x: list(x)),
-             'end_agg': re_c.groupby(['parentrole', 'concept'])['period_end'].aggregate(
-                 lambda x: list(x))}).reset_index()
-
-        for i, row in re_c.iterrows():
-            ser_concept = \
-                re_c_agg[(re_c_agg['concept'] == row['concept']) & (re_c_agg['parentrole'] == row['parentrole'])][
-                    'dimension_agg']
-            if ser_concept.values:
-                ser_concept = [xx for xx in ser_concept if xx]
-                if ser_concept:
-                    re_c['dimension'][i] = ';'.join(ser_concept[0])
-                else:
-                    None
-            ser_start = re_c_agg_per[
-                (re_c_agg_per['concept'] == row['concept']) & (re_c_agg_per['parentrole'] == row['parentrole'])][
-                'start_agg']
-            ser_end = re_c_agg_per[
-                (re_c_agg_per['concept'] == row['concept']) & (re_c_agg_per['parentrole'] == row['parentrole'])][
-                'end_agg']
-            if ser_start.values:
-                ser_start = [xx for xx in ser_start if xx]
-                if ser_start:
-                    re_c['period_start'][i] = ser_start[0]
-                else:
-                    None
-            if ser_end.values:
-                ser_end = [xx for xx in ser_end if xx]
-                if ser_end:
-                    re_c['period_end'][i] = ser_end[0]
-                else:
-                    None
-        for ii,row in df_period.iterrows():
-            print(row['parentrole'],row['concept'],row['period_start'],row['period_end'])
 
         self.save_large_dataframe_to_excel(re_c,'periods.xlsx')
 
