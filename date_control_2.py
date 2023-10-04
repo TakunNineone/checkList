@@ -14,7 +14,7 @@ class date_control():
                                         password="124kosm21",
                                         host="127.0.0.1",
                                         port="5432",
-                                        database="taxonomy_db")
+                                        database="final_5_2")
         self.data = f"""
         select distinct targetnamespace||';'||tp.entity||';'||tp.rinok data
         from tableparts tp 
@@ -91,10 +91,12 @@ class date_control():
 
                 union all
 
-                select distinct an.version,an.rinok,an.entity,an.parentrole,id,label,dimension,null concept,null period_type,null tag,null period_start,null period_end,
+                select distinct an.version,an.rinok,an.entity,an.parentrole,an.id,an.label,coalesce(re.dimension||'#'||rm.member,an.dimension) dimension,null concept,null period_type,null tag,null period_start,null period_end,
                 a2.arcfrom father,case when a.arcto is null then 0 else 1 end is_child
                 from aspectnodes an
-                left join arcs a on a.version=an.version and a.rinok=an.rinok and a.entity=an.entity and a.parentrole=an.parentrole and a.arcfrom=an.label  
+                left join arcs a on a.version=an.version and a.rinok=an.rinok and a.entity=an.entity and a.parentrole=an.parentrole and a.arcfrom=an.label 
+                left join rend_edimensions re on a.version=re.version and a.rinok=re.rinok and a.entity=re.entity and a.parentrole=re.parentrole and re.label=a.arcto
+	            left join rend_edmembers rm on rm.version=re.version and rm.rinok=re.rinok and rm.entity=re.entity and rm.parentrole=re.parentrole and rm.dimension_id=re.id 
                 left join arcs a2 on a2.version=an.version and a2.rinok=an.rinok and a2.entity=an.entity and a2.parentrole=an.parentrole and a2.arcto=an.label  
                 where an.parentrole in {self.parentrole_table} 
                 --and an.parentrole in ('http://www.cbr.ru/xbrl/nso/uk/rep/2023-03-31/tab/sr_0420503_R3')
@@ -119,7 +121,7 @@ class date_control():
                 	select distinct rn.version,rn.rinok,rn.entity,rn.parentrole,period_type,rp.start,rp.end 
                 	from rulenodes rn
                 	join rulenodes_p rp on rp.version=rn.version and rp.rinok=rn.rinok and rp.entity=rn.entity and rp.parentrole=rn.parentrole and rp.rulenode_id=rn.id
-                	where rn.parentrole in {self.parentrole_table}
+                	where rn.parentrole in {self.parentrole_table} 
                 """
         null__ = '{NULL}'
         self.sql_def = f"""
@@ -338,18 +340,19 @@ group by version,rinok,entity,parentrole
         line_add = []
         for p, row in re_c.iterrows():
             try:
-                start = pp[(pp['parentrole'] == row['parentrole']) & (pp['period_type'] == row['period_type'])][
+                start = pp[(pp['parentrole'] == row['parentrole']) & (pp['period_type'] == row['period_type'])  & (pp['rinok'] == row['rinok'])][
                     'start'].values
+                print(start)
             except:
                 start = None
             # print(row['concept'],row['label'],start)
             try:
-                end = pp[(pp['parentrole'] == row['parentrole']) & (pp['period_type'] == row['period_type'])][
+                end = pp[(pp['parentrole'] == row['parentrole']) & (pp['period_type'] == row['period_type'])  & (pp['rinok'] == row['rinok'])][
                     'end'].values
             except:
                 end = None
-            # print(row['concept'],row['period_type'],row['period_start'],start,end)
-            if not row['period_start'] and start != []:
+            print(row['parentrole'],row['concept'],row['period_type'],row['period_start'],start,end)
+            if row['period_start']==None:
                 re_c['period_start'][p] = start[0]
                 re_c['period_end'][p] = end[0]
 
@@ -499,7 +502,7 @@ group by version,rinok,entity,parentrole
             final_df['dimension'][i] = dim_temp
 
 
-        columns_final_df_dd = ['concept', 'dimension', 'period_start', 'period_end', 'new_dimension', 'uri_razdel',
+        columns_final_df_dd = ['concept', 'dimension', 'period_start', 'period_end', 'new_dimension', 'uri_razdel','uri_table',
                                'parentrole_text', 'entity']
         check2 = False
 
@@ -508,7 +511,7 @@ group by version,rinok,entity,parentrole
 
 
 
-        columns_to_excel = ['entrypoint', 'concept', 'hypercube', 'ogrn', 'period_start', 'period_end', 'parentrole',
+        columns_to_excel = ['entrypoint', 'concept', 'hypercube', 'ogrn', 'period_start', 'period_end', 'parentrole','parentrole_table',
                             'parentrole_text']
         line_temp = []
         len_df = len(final_df_dd)
@@ -533,7 +536,7 @@ group by version,rinok,entity,parentrole
 
             line_temp.append(
                 [ep, yy['concept'], ';'.join(dim) if dim else None, None, yy['period_start'], yy['period_end'],
-                 yy['uri_razdel'], yy['parentrole_text']])
+                 yy['uri_razdel'],yy['uri_table'], yy['parentrole_text']])
             print(f"\r{l}..{len_df}", end="", flush=True)
         print("удалил default")
 
@@ -572,7 +575,7 @@ group by version,rinok,entity,parentrole
                                         row2['period_start'][xx] if row2['period_start'][
                                             xx] else '$par:refPeriodEnd', row2['period_end'][xx],
                                         row1['dimension'],
-                                        row1['parentrole'], row1['parentrole_text'], row1['entity']])
+                                        row1['parentrole'],row2['parentrole'], row1['parentrole_text'], row1['entity']])
                     break
                 elif dimension2.issuperset(dimension1)==False and dimension2_clear.issuperset(dimension1_clear) and row2['parentrole_agg'] in parentrole1:
                     # print(parentrole1,row2['parentrole_agg'])
@@ -582,7 +585,7 @@ group by version,rinok,entity,parentrole
                                         row2['period_start'][xx] if row2['period_start'][
                                             xx] else '$par:refPeriodEnd', row2['period_end'][xx],
                                         row1['dimension'],
-                                        row1['parentrole'], row1['parentrole_text'], row1['entity']])
+                                        row1['parentrole'],row2['parentrole'], row1['parentrole_text'], row1['entity']])
                     break
                 else:
                     None
@@ -590,7 +593,7 @@ group by version,rinok,entity,parentrole
                 results.append([row1['concept'], row1['dimension'],
                                    'ERROR',
                                    'ERROR', row1['dimension'],
-                                   row1['parentrole'], row1['parentrole_text'], row1['entity']])
+                                   row1['parentrole'],None, row1['parentrole_text'], row1['entity']])
             print(f"\r{i}..{len_df}", end="", flush=True)
         print('\n')
 
@@ -620,9 +623,10 @@ group by version,rinok,entity,parentrole
 
 
 if __name__ == "__main__":
-    ep = 'http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/ep/ep_SSDNEMED_10rd_sr_m'
+    #ep = 'http://www.cbr.ru/xbrl/nso/uk/rep/2023-03-31/ep/support_ep_all_nso_uk'
+    ep = 'http://www.cbr.ru/xbrl/nso/uk/rep/2023-03-31/ep/ep_nso_uk_q_y_10rd'
     ss = date_control(ep)
     xsds = ["'" + row['data'].split(';')[1] + "'" for xx, row in ss.read_data().iterrows()]
     xsds_str = '(' + ",".join(xsds) + ')'
     roles_def = xsds_str.replace('.xsd', '-definition.xml')
-    ss.do_sql(xsds_str, roles_def, 'ins', ep,'')
+    ss.do_sql(xsds_str, roles_def, 'uk', ep,'')

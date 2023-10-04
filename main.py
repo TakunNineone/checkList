@@ -27,7 +27,7 @@ class checkList():
                                  password="124kosm21",
                                  host="127.0.0.1",
                                  port="5432",
-                                 database="final_6_5")
+                                 database="final_6_test")
         return conn
 
     @timer
@@ -36,7 +36,7 @@ class checkList():
                                 password="124kosm21",
                                 host="127.0.0.1",
                                 port="5432",
-                                database="final_6_5")
+                                database="final_6_test")
 
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:

@@ -14,7 +14,7 @@ class date_control():
                                         password="124kosm21",
                                         host="127.0.0.1",
                                         port="5432",
-                                        database="final_5_2")
+                                        database="final_6_5")
 
 
     def do_sql(self):
