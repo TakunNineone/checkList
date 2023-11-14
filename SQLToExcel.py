@@ -6,7 +6,7 @@ def do_sql(sql):
                                password="124kosm21",
                                host="127.0.0.1",
                                port="5432",
-                               database="final_5_2")
+                               database="final_6_5_idx")
     df = pd.read_sql_query(sql, connect)
     connect.close()
     gc.collect()
@@ -18,9 +18,7 @@ def save_to_excel(df,sql,name):
         df_sql=pd.DataFrame({'sql':[sql]})
         df_sql.to_excel(writer,index=False,sheet_name='SQL')
 sql_1="""
- 
-
-        with 
+with 
 df as 
 (
         select replace(entity,'.xsd','-definition.xml') entity,array_agg(distinct dim_def) dim_def
@@ -45,7 +43,7 @@ df as
         ) ee 
         group by replace(entity,'.xsd','-definition.xml')
 ),
-def as not materialized
+def_temp as not materialized
 (
  select l.version,l.rinok,l.entity,l.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,coalesce(e.abstract,'false') abstract,a.usable,targetrole,
          case when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' and coalesce(e.type,'')!='nonnum:domainItemType' then 1
@@ -56,21 +54,40 @@ def as not materialized
          when arcrole='http://xbrl.org/int/dim/arcrole/all' then 0 else -1 end type_elem,
   typeddomainref
         from locators l
-        join elements e on e.id=href_id and e.version=l.version
+        join elements e on e.id=href_id and e.version=l.version 
+        join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
+        and a.arctype='definition' and l.rinok!='bfo'
+		where l.rinok='ins' and lower(l.parentrole) not similar to '%chasti%'
+	--where l.parentrole in ('http://www.cbr.ru/xbrl/nso/bki/rep/2024-11-01/tab/sr_0420754_r1','http://www.cbr.ru/xbrl/nso/ins/rep/2024-11-01/tab/sr_0420154/sr_0420154_R2_P30/1')
+        order by arcrole
+),
+def as
+(
+select l.version,d_.rinok,d_.entity,d_.parentrole,e.qname,l.label,arcfrom,arcto,arcrole,e.type,coalesce(e.abstract,'false') abstract,a.usable,null targetrole,
+         case when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' and coalesce(e.type,'')!='nonnum:domainItemType' then 1
+         when arcrole='http://xbrl.org/int/dim/arcrole/hypercube-dimension' then 2
+         when arcrole='http://xbrl.org/int/dim/arcrole/dimension-domain' then 3
+         when arcrole='http://xbrl.org/int/dim/arcrole/domain-member' then 4 
+         when arcrole='http://xbrl.org/int/dim/arcrole/notAll' then 5 
+         when arcrole='http://xbrl.org/int/dim/arcrole/all' then 0 else -1 end type_elem,
+  typeddomainref
+        from locators l
+		join (select distinct version,rinok,entity,parentrole,targetrole from def_temp) d_ on d_.version=l.version and d_.targetrole=l.parentrole
+        join elements e on e.id=href_id and e.version=l.version 
         join arcs a on a.arcto=l.label and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole
         and a.arctype='definition'
-		and l.parentrole in 
-                (select roleuri from rolerefs where entity in ('sr_0420501-definition.xml','sr_0420502-definition.xml','sr_0420503-definition.xml','sr_0420504-definition.xml','sr_0420505-definition.xml','sr_0420506-definition.xml','sr_0420507-definition.xml','sr_0420508-definition.xml','sr_0420509-definition.xml','sr_0420511-definition.xml','sr_0420512-definition.xml','sr_0420513-definition.xml','sr_0420514-definition.xml','sr_0420515-definition.xml','sr_0420516-definition.xml','sr_0420521-definition.xml','sr_0420521_spod-definition.xml','sr_0420522-definition.xml','sr_0420522_spod-definition.xml','sr_0420525-definition.xml','sr_0420526-definition.xml','sr_0420527-definition.xml','sr_0420527_spod-definition.xml','sr_nfo_2-definition.xml','sr_nfo_3-definition.xml','sr_nfo_4-definition.xml','sr_soprovod-definition.xml','sr_sved_otch_org-definition.xml') and rinok='uk' 
-              --  and roleuri='http://www.cbr.ru/xbrl/nso/ins/rep/2023-03-31/tab/sr_0420154/sr_0420154_R2_P21_2/1'
-                )
-                 and l.rinok='uk'
-        order by arcrole
+	
+	union all
+	
+	select * from def_temp
+	
+	
 ),
 dd as
 (
 WITH RECURSIVE recursive_hierarchy AS ( 
   SELECT 
-    version,rinok,entity,parentrole,targetrole,qname AS child_qname, 
+    version,rinok,entity,parentrole,targetrole,usable,qname AS child_qname, 
     qname AS parent_qname,  -- Сохраняем "qname" родителя 
     arcfrom, 
     arcto, 
@@ -85,7 +102,7 @@ WITH RECURSIVE recursive_hierarchy AS (
   UNION ALL 
  
   SELECT 
-    c.version,c.rinok,c.entity,c.parentrole,c.targetrole,c.qname AS child_qname, 
+    c.version,c.rinok,c.entity,c.parentrole,c.targetrole,c.usable,c.qname AS child_qname, 
     p.parent_qname,  -- Передаем "qname" родителя 
     c.arcfrom, 
     c.arcto, 
@@ -99,22 +116,32 @@ WITH RECURSIVE recursive_hierarchy AS (
     c.type_elem IN (3, 4)  -- Дети могут быть типа 3 или 4 
 )
 
-select version,rinok,entity,parentrole,string_to_array(unnest(generate_combinations(array_agg(dims))),'|') dims
+-- 	select * from recursive_hierarchy
+select version,rinok,entity,parentrole,string_to_array(unnest(generate_combinations_t(array_agg(distinct dims))),'|') dims
  from
  (
-select version,rinok,entity,parentrole,targetrole,parent_qname dim,
-string_agg(parent_qname||case when child_qname=parent_qname then '' else '#' end||case when child_qname=parent_qname then '' else child_qname end,'|') dims
+select version,rinok,entity,parentrole,targetrole,usable,parent_qname dim,
+string_agg(distinct parent_qname||case when parent_qname=child_qname
+		   then '' else '#' end||case when parent_qname=child_qname
+		   then '' else child_qname end,'|') dims
 FROM 
 recursive_hierarchy
-where (type_elem>2 and typeddomainref is null or type_elem>=2 and typeddomainref is not null)
-group by version,rinok,entity,parentrole,targetrole,parent_qname 
-  )dd
-group by version,rinok,entity,parentrole  
-)
-  select zz.version,zz.rinok,zz.entity,zz.parentrole,rt.definition parentrole_text,concept,coalesce(array_unique(dimensions),'{}') dim
+where ((type_elem>=2 and typeddomainref is null and parent_qname!=child_qname) or (type_elem>=2 and typeddomainref is not null) or type_elem>2)
+group by version,rinok,entity,parentrole,targetrole,parent_qname,usable
+  ) dd
+	
+where coalesce(usable,'true')!='false'
+	group by version,rinok,entity,parentrole
+	)
+
+
+select distinct version,rinok,concept,array_to_string(coalesce(array_unique(dimensions),'{}'),';') dimensions,
+   string_agg(distinct split_part(entity,'-definition.xml',1),';') files,
+   array_length(array_agg(distinct parentrole),1) cnt,
+   string_agg(distinct parentrole,';' order by parentrole) roles
   from
   (
-    select distinct dd.version,dd.rinok,dd.entity,parentrole,concept,remove_elements_from_array(dims,dim_def) dimensions,dims
+    select distinct dd.version,dd.rinok,dd.entity,parentrole,rt.definition parentrole_text,concept,remove_elements_from_array(dims,dim_def) dimensions,dims
         from
         (
         select cc.version,cc.rinok,cc.entity,cc.parentrole,cc.qname concept,dims,
@@ -140,15 +167,17 @@ group by version,rinok,entity,parentrole
         left join roletypes rt on rt.roleuri=dd.parentrole
         where is_minus=0
   ) zz
-  left join roletypes rt on rt.version=zz.version and rt.roleuri=zz.parentrole
-   order by version,rinok,entity,parentrole
-        
-                 
+   group by version,rinok,concept,array_to_string(coalesce(array_unique(dimensions),'{}'),';')
+   having array_length(array_agg(distinct parentrole),1)>1
+order by version,rinok,concept
+
+
+
+
+
 """
 df=do_sql(sql_1)
 
-with open('def_uk.pkl', 'wb') as f:
-    pickle.dump(df, f)
-#save_to_excel(df,sql_1,'68. Автоматическая проверка длины кода элементов, которые используются в слое definition. Максимум - 64 символа без префикса.')
+save_to_excel(df,sql_1,'41_для проверки_2')
 
 
