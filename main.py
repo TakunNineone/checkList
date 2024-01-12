@@ -89,7 +89,7 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_6'
+    version='final_6_git'
     cnt_process = 7 #кол-во потоков
     ss=checkList(version)
     print('Запуск - ',datetime.datetime.now())
