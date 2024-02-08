@@ -6,7 +6,7 @@ def do_sql(sql):
                                password="124kosm21",
                                host="127.0.0.1",
                                port="5432",
-                               database="final_6")
+                               database="final_6_git")
     df = pd.read_sql_query(sql, connect)
     connect.close()
     gc.collect()
@@ -18,26 +18,29 @@ def save_to_excel(df,sql,name):
         df_sql=pd.DataFrame({'sql':[sql]})
         df_sql.to_excel(writer,index=False,sheet_name='SQL')
 sql_1="""
-with ll as
+select distinct version "Версия",entity "Файл",parentrole "Роль",id "ID",get_kiril_element(id) latin from
 (
-select version,rinok,entity,href,ll.order,rn::numeric[] as rn,
-DENSE_RANK() OVER (
-    PARTITION BY version,rinok,entity
-    ORDER BY rn::numeric[],href) rn_num
-from
-(
-select version,rinok,entity,href,tp.order,array_remove(string_to_array(NULLIF(regexp_replace(href, '\D','|','g'), '1'),'|'),'') rn
-from linkbaserefs tp
-where href like '%-rend.xml' and href not like '../%' and rinok!='bfo'
-) ll
-order by version,rinok,entity,rn::numeric[]
-)
-
-select version "Версия",rinok "Рынок",entity "Файл",href "REND",ll.order "Порядок в файле",rn_num "Порядок как должен быть",rn
-from ll
-where (version,rinok,entity) in (select version,rinok,entity from ll where ll.order-rn_num!=0)
+select version,entity,parentrole,id,'va_edimensions' chto from va_edimensions union all
+select version,entity,parentrole,id,'va_tdimensions' from va_tdimensions union all
+select version,entity,parentrole,id,'va_concepts' from va_concepts union all
+select version,entity,parentrole,id,'va_factvars' from va_factvars union all
+select version,entity,parentrole,id,'va_assertions' from va_assertions union all
+select version,entity,parentrole,id,'va_generals' from va_generals union all
+select version,entity,parentrole,id,'va_aspectcovers' from va_aspectcovers union all
+select version,entity,parentrole,id,'va_assertionsets' from va_assertionsets union all
+select version,entity,parentrole,id,'tableschemas' from tableschemas union all
+select version,entity,parentrole,id,'labels' from labels union all
+select version,entity,parentrole,id,'rend_edimensions' from rend_edimensions union all
+select version,entity,parentrole,id,'rulenodes' from rulenodes union all
+select version,entity,parentrole,id,'aspectnodes' from aspectnodes union all
+select version,entity,parentrole,id,'preconditions' from preconditions union all
+select version,entity,parentrole,id,'messages' from messages 
+) all_id
+where entity in 
+(select href from linkbaserefs)
+and id SIMILAR TO '%[\u0410-\u044f]%'
 """
 df=do_sql(sql_1)
-save_to_excel(df,sql_1,'порядок разделов (где не сошлось)')
+save_to_excel(df,sql_1,'кириллица в 162')
 
 
