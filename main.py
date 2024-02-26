@@ -2,6 +2,7 @@ import psycopg2,warnings,gc
 import pandas as pd
 warnings.filterwarnings("ignore")
 from multiprocessing.pool import ThreadPool
+from openpyxl.styles import Font, Color
 import datetime
 
 
@@ -27,7 +28,7 @@ class checkList():
                                  password="124kosm21",
                                  host="127.0.0.1",
                                  port="5432",
-                                 database="final_6_git")
+                                 database="final_6_0")
         return conn
 
     @timer
@@ -36,14 +37,15 @@ class checkList():
                                 password="124kosm21",
                                 host="127.0.0.1",
                                 port="5432",
-                                database="final_6_git")
+                                database="final_6_0")
 
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
-            self.query_resul.append([dat,id])
+            self.query_resul.append([dat,id,text])
             self.result_list.append({'ID': id,
                                      'TEXT': text,
                                      'RESULT': f'=HYPERLINK("[{self.name_result}]{id}!A1", "FAIL")',
+                                     'RESULT_TEMP': "FAIL"
                                     })
         else:
             self.result_list.append({'ID':id,'TEXT':text,'RESULT':'OK'})
@@ -51,16 +53,40 @@ class checkList():
         del dat
         gc.collect()
 
+    def add_first_line(self,df,text):
+        df_c = list(df.columns)
+        firs_row = [None] * len(df_c)
+        firs_row[0] = text
+        first_row_df = pd.DataFrame(data=[firs_row], columns=df_c)
+        df = pd.concat([first_row_df, df]).reset_index(drop=True)
+        df.applymap(lambda x: "background-color: yellow")
+        return df
+
     def save_to_excel(self,result_list,query_result):
         res_pd = pd.DataFrame(result_list)
-        res_pd = res_pd.astype({'ID': float}).sort_values(by=['RESULT','ID'])
+        res_pd['ID'] = [float(xx) for xx in res_pd['ID']]
+        res_pd = res_pd.sort_values(by=['RESULT_TEMP','ID']).reset_index()
+        res_pd = res_pd [['ID','TEXT','RESULT']]
+        res_pd_temp=res_pd.copy()
         res_pd = res_pd.style.applymap(lambda x: "background-color: yellow" if 'FAIL' in x else None, subset=['RESULT'])
-        with pd.ExcelWriter(self.name_result) as writer:
+        with pd.ExcelWriter(self.name_result,engine='xlsxwriter') as writer:
             res_pd.to_excel(writer,index=False,sheet_name='result')
-            for xx in query_result:
-                xx[0].insert(0, 'НАЗАД',f'=HYPERLINK("#result!A1", "НАЗАД")')
-                # xx[0]=xx[0].style.applymap(lambda x: "background-color: yellow" if 'НАЗАД' in x else None, subset=['НАЗАД'])
-                xx[0].to_excel(writer,index=False,sheet_name=str(xx[1]))
+            for xx in range(len(query_result)):
+                link_=res_pd_temp.loc[res_pd_temp['ID'] == query_result[xx][1]].index[0]+2
+                zz=query_result[xx][1]
+                query_result[xx][0].insert(0, 'НАЗАД',f'=HYPERLINK("#result!B{link_}", "НАЗАД")')
+                query_result[xx][0].to_excel(writer,sheet_name=str(query_result[xx][1]), startrow = 1, index=False, freeze_panes=(2, 1))
+                worksheet = writer.sheets[str(query_result[xx][1])]
+                text = query_result[xx][2]
+                cell_format = writer.book.add_format()
+                cell_format.set_bold()
+                cell_format.set_font_size(13)
+                cell_format.set_font_color('green')
+                column_format=writer.book.add_format({'color':'orange'})
+                worksheet.write(0, 0, text)
+                worksheet.set_row(0, 30, cell_format)
+                worksheet.set_column('A2:A2', None, column_format)
+            writer._save()
 
 
     def openCheckList(self,path,version): #для одного потока
@@ -75,7 +101,7 @@ class checkList():
 
     def openCheckList_th(self,temp_rows): #многопоточный
         sql, id, text = temp_rows[0],temp_rows[1],temp_rows[2]
-        if id > 0:
+        if id in (1,57,78,8):
             self.do_sql(sql,id,text)
 
     def startThread(self,path, version, cnt_process):
@@ -94,7 +120,7 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_6_git'
+    version='final_6_0'
     cnt_process = 5 #кол-во потоков
     ss=checkList(version)
     print('Запуск - ',datetime.datetime.now())

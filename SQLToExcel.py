@@ -6,7 +6,7 @@ def do_sql(sql):
                                password="124kosm21",
                                host="127.0.0.1",
                                port="5432",
-                               database="final_6_git")
+                               database="final_6_0")
     df = pd.read_sql_query(sql, connect)
     connect.close()
     gc.collect()
@@ -18,22 +18,32 @@ def save_to_excel(df,sql,name):
         df_sql=pd.DataFrame({'sql':[sql]})
         df_sql.to_excel(writer,index=False,sheet_name='SQL')
 sql_1="""
-select distinct version "Версия",rinok "Рынок",entity "Файл",parentrole "Роль",id,value 
-from va_concepts
-where value not in (select qname from elements 
-       )
-union all
-select distinct version "Версия",rinok "Рынок",entity "Файл",parentrole "Роль",id,dimension 
-from va_edimensions
-where dimension not in (select qname from elements 
-        )
-union all
-select distinct version "Версия",rinok "Рынок",entity "Файл",parentrole "Роль",dimension_id,member 
-from va_edmembers
-where member not in (select qname from elements 
-     )
+select distinct e.version "Версия",e.rinok "Рынок",e.entity "Файл элемента с паттерном",dd.entity "Файл таблицы",uri_razdel "URI definition",
+taxis "Ось (для typedName)",elem "Элемент с паттерном",substitutiongroup "Тип",e.minlength,e.pattern,round_skobka "Баланс круглых скобок",square_skobka "Баланс квадратных скобок"
+from
+(
+select coalesce(ee.id,e.id) all_id,e.version,e.rinok,e.entity,ee.qname taxis,e.qname elem,substitutiongroup,e.minlength,e.pattern,round_skobka,square_skobka
+from
+(
+select version,rinok,entity,id,qname,
+substitutiongroup "Тип",minlength,pattern,
+length(replace(pattern,'(','')) = length(replace(pattern,')','')) round_skobka,
+length(replace(pattern,'[','')) = length(replace(pattern,']','')) square_skobka
+from elements where pattern is not null
+) e 
+left join elements ee on e.id=split_part(ee.typeddomainref,'#',-1) and e.version=ee.version
+) e
+left join 
+(
+select a.version,a.entity,a.rinok,a.parentrole uri_razdel,l.href_id 
+from arcs a
+join locators l on l.label=a.arcto and l.version=a.version and l.rinok=a.rinok and l.entity=a.entity and a.parentrole=l.parentrole 
+where arctype='definition'
+) dd on dd.version=e.version and dd.href_id=e.all_id
+order by uri_razdel nulls last,taxis nulls last
+
 """
 df=do_sql(sql_1)
-save_to_excel(df,sql_1,'46_git')
+save_to_excel(df,sql_1,'64 final_6_git')
 
 

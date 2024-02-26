@@ -45,10 +45,11 @@ class checkList():
 
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
-            self.query_resul.append([dat,id])
+            self.query_resul.append([dat,id,text])
             self.result_list.append({'ID': id,
                                      'TEXT': text,
                                      'RESULT': f'=HYPERLINK("#{id}!A1", "FAIL")',
+                                     'RESULT_TEMP': "FAIL"
                                     })
         else:
             self.result_list.append({'ID':id,'TEXT':text,'RESULT':'OK'})
@@ -58,17 +59,29 @@ class checkList():
 
     def save_to_excel(self,result_list,query_result):
         res_pd = pd.DataFrame(result_list)
-        res_pd = res_pd.astype({'ID': float}).sort_values(by=['RESULT','ID'])
+        res_pd['ID'] = [float(xx) for xx in res_pd['ID']]
+        res_pd = res_pd.sort_values(by=['RESULT_TEMP','ID']).reset_index()
+        res_pd = res_pd [['ID','TEXT','RESULT']]
+        res_pd_temp=res_pd.copy()
         res_pd = res_pd.style.applymap(lambda x: "background-color: yellow" if 'FAIL' in x else None, subset=['RESULT'])
-        print(self.name_result)
-        with pd.ExcelWriter(self.name_result) as writer:
+        with pd.ExcelWriter(self.name_result,engine='xlsxwriter') as writer:
             res_pd.to_excel(writer,index=False,sheet_name='result')
-            for xx in query_result:
-                if xx[0].empty==False:
-                    xx[0].insert(0, 'НАЗАД_column', f'=HYPERLINK("#result!A1", "НАЗАД")')
-                    # xx[0].reset_index()
-                    # xx[0] = xx[0].style.applymap(lambda x: "background-color: yellow" if 'НАЗАД_column' in x else None,subset=['НАЗАД_column'])
-                    xx[0].to_excel(writer,index=False,sheet_name=str(xx[1]))
+            for xx in range(len(query_result)):
+                link_=res_pd_temp.loc[res_pd_temp['ID'] == query_result[xx][1]].index[0]+2
+                zz=query_result[xx][1]
+                query_result[xx][0].insert(0, 'НАЗАД',f'=HYPERLINK("#result!B{link_}", "НАЗАД")')
+                query_result[xx][0].to_excel(writer,sheet_name=str(query_result[xx][1]), startrow = 1, index=False, freeze_panes=(2, 1))
+                worksheet = writer.sheets[str(query_result[xx][1])]
+                text = query_result[xx][2]
+                cell_format = writer.book.add_format()
+                cell_format.set_bold()
+                cell_format.set_font_size(13)
+                cell_format.set_font_color('green')
+                column_format=writer.book.add_format({'color':'orange'})
+                worksheet.write(0, 0, text)
+                worksheet.set_row(0, 30, cell_format)
+                worksheet.set_column('A2:A2', None, column_format)
+            writer._save()
 
     def openCheckList(self,path,version): #для одного потока
         xlsx = pd.ExcelFile(path)
