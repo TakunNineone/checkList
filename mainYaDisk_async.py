@@ -1,4 +1,4 @@
-import asyncio, asyncpg
+import asyncio, asyncpg, sys
 import datetime, pandas as pd
 
 def timer(func):
@@ -34,17 +34,16 @@ class AsyncPGDatabase:
         await conn.close()
 
 
-async def main(data:list, name_result):
+async def main(data:list, name_result,version):
     # Укажите ваши параметры подключения к базе данных PostgreSQL
-    dsn = "postgresql://postgres:124kosm21@127.0.0.1/final_6_0"
+    dsn = f"postgresql://postgres:124kosm21@127.0.0.1/{version}"
 
     asyncpg_db = AsyncPGDatabase(dsn, name_result)
 
     tasks = []
 
     for query in data:
-        if query[1] in (1,57,78,8,93):
-            tasks.append(asyncpg_db.execute_select(query[0],query[1],query[2]))
+        tasks.append(asyncpg_db.execute_select(query[0],query[1],query[2]))
 
     await asyncio.gather(*tasks)
 
@@ -77,7 +76,7 @@ def save_to_excel(result_list,query_result,name_result):
                 link_=res_pd_temp.loc[res_pd_temp['ID'] == query_result[xx][1]].index[0]+2
                 zz=query_result[xx][1]
                 query_result[xx][0].insert(0, 'НАЗАД',f'=HYPERLINK("#result!B{link_}", "НАЗАД")')
-                query_result[xx][0].to_excel(writer,sheet_name=str(query_result[xx][1]), startrow = 1, index =False, freeze_panes=(2, 1))
+                query_result[xx][0].to_excel(writer,sheet_name=str(query_result[xx][1]), startrow = 1, index=False, freeze_panes=(2, 1))
                 worksheet = writer.sheets[str(query_result[xx][1])]
                 text = query_result[xx][2]
                 cell_format = writer.book.add_format()
@@ -91,10 +90,12 @@ def save_to_excel(result_list,query_result,name_result):
             writer._save()
 
 if __name__ == '__main__':
-    path = 'checkList.xlsx'
-    version = 'final_6_0'
+    path=sys.argv[2]+'/'+'checkList.xlsx'
+    version = sys.argv[1].split('.zip')[0]
     d_time = str(datetime.datetime.now()).replace(':', '_')
-    name_result = f"{version}_checkList_result({d_time}).xlsx"
+    print('Запуск - ', datetime.datetime.now())
+    name_result = sys.argv[3]
     list_data = openCheckList(path, version)
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main(list_data,name_result))
+    loop.run_until_complete(main(list_data,name_result,version))
+    print('Завершено - ', datetime.datetime.now())
