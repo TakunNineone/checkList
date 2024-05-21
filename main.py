@@ -28,7 +28,7 @@ class checkList():
                                  password="124kosm21",
                                  host="127.0.0.1",
                                  port="5432",
-                                 database="final_6_0")
+                                 database="final_6_predv")
         return conn
 
     @timer
@@ -37,7 +37,7 @@ class checkList():
                                 password="124kosm21",
                                 host="127.0.0.1",
                                 port="5432",
-                                database="final_6_0")
+                                database="final_6_predv")
 
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
@@ -101,7 +101,7 @@ class checkList():
 
     def openCheckList_th(self,temp_rows): #многопоточный
         sql, id, text = temp_rows[0],temp_rows[1],temp_rows[2]
-        if id in (1,57,78,8):
+        if id >0:
             self.do_sql(sql,id,text)
 
     def startThread(self,path, version, cnt_process):
@@ -120,7 +120,7 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_6_0'
+    version='final_6_predv'
     cnt_process = 5 #кол-во потоков
     ss=checkList(version)
     print('Запуск - ',datetime.datetime.now())
