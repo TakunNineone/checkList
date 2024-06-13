@@ -28,7 +28,7 @@ class checkList():
                                  password="124kosm21",
                                  host="127.0.0.1",
                                  port="5432",
-                                 database="final_6_predv")
+                                 database="final_5_2_0_9")
         return conn
 
     @timer
@@ -37,7 +37,7 @@ class checkList():
                                 password="124kosm21",
                                 host="127.0.0.1",
                                 port="5432",
-                                database="final_6_predv")
+                                database="final_5_2_0_9")
 
         dat = pd.read_sql_query(sql, connect)
         if dat.empty==False:
@@ -120,7 +120,7 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_6_predv'
+    version='final_5_2_0_9'
     cnt_process = 5 #кол-во потоков
     ss=checkList(version)
     print('Запуск - ',datetime.datetime.now())
