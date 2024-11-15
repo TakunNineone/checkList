@@ -36,14 +36,14 @@ class AsyncPGDatabase:
 
 async def main(data:list, name_result):
     # Укажите ваши параметры подключения к базе данных PostgreSQL
-    dsn = "postgresql://postgres:124kosm21@127.0.0.1/final_5_2_0_9"
+    dsn = "postgresql://postgres:124kosm21@127.0.0.1/final_6_3"
 
     asyncpg_db = AsyncPGDatabase(dsn, name_result)
 
     tasks = []
 
     for query in data:
-        if query[1] not in (12,18,80):
+        #if query[1] not in (12,18,80):
             tasks.append(asyncpg_db.execute_select(query[0],query[1],query[2]))
 
     await asyncio.gather(*tasks)
@@ -70,7 +70,7 @@ def save_to_excel(result_list,query_result,name_result):
         res_pd = res_pd.sort_values(by=['RESULT_TEMP','ID']).reset_index()
         res_pd = res_pd [['ID','TEXT','RESULT']]
         res_pd_temp=res_pd.copy()
-        res_pd = res_pd.style.applymap(lambda x: "background-color: yellow" if 'FAIL' in x else None, subset=['RESULT'])
+        res_pd = res_pd.style.map(lambda x: "background-color: yellow" if 'FAIL' in x else None, subset=['RESULT'])
         with pd.ExcelWriter(name_result,engine='xlsxwriter') as writer:
             res_pd.to_excel(writer,index=False,sheet_name='result')
             for xx in range(len(query_result)):
@@ -92,7 +92,7 @@ def save_to_excel(result_list,query_result,name_result):
 
 if __name__ == '__main__':
     path = 'checkList.xlsx'
-    version = 'final_5_2_0_9'
+    version = 'final_6_3'
     d_time = str(datetime.datetime.now()).replace(':', '_')
     name_result = f"{version}_checkList_result({d_time}).xlsx"
     list_data = openCheckList(path, version)
