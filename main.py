@@ -122,7 +122,7 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='XBRL_25102024'
+    version='final_a_6_1_0_2'
     cnt_process = 3 #кол-во потоков
     ss=checkList(version)
     print('Запуск - ',datetime.datetime.now())
