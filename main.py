@@ -33,7 +33,7 @@ class checkList():
         return conn
 
     @timer
-    def do_sql(self,sql,id,text):
+    def do_sql(self,sql,id,text,comment):
         connect = psycopg2.connect(user="postgres",
                                 password="124kosm21",
                                 host="127.0.0.1",
@@ -46,10 +46,11 @@ class checkList():
             self.result_list.append({'ID': id,
                                      'TEXT': text,
                                      'RESULT': f'=HYPERLINK("[{self.name_result}]{id}!A1", "FAIL")',
-                                     'RESULT_TEMP': "FAIL"
+                                     'RESULT_TEMP': "FAIL",
+                                     'Comment':comment
                                     })
         else:
-            self.result_list.append({'ID':id,'TEXT':text,'RESULT':'OK'})
+            self.result_list.append({'ID':id,'TEXT':text,'RESULT':'OK','Comment':comment})
         connect.close()
         del dat
         gc.collect()
@@ -67,7 +68,7 @@ class checkList():
         res_pd = pd.DataFrame(result_list)
         res_pd['ID'] = [float(xx) for xx in res_pd['ID']]
         res_pd = res_pd.sort_values(by=['RESULT_TEMP','ID']).reset_index()
-        res_pd = res_pd [['ID','TEXT','RESULT']]
+        res_pd = res_pd [['ID','TEXT','RESULT','Comment']]
         res_pd_temp=res_pd.copy()
         res_pd = res_pd.style.applymap(lambda x: "background-color: yellow" if 'FAIL' in x else None, subset=['RESULT'])
         with pd.ExcelWriter(self.name_result,engine='xlsxwriter') as writer:
@@ -98,13 +99,15 @@ class checkList():
             sql=row['SQL'].replace('HID', f"'{version}'")
             id=row['ID']
             text=row['TEXT']
-            self.do_sql(sql,id,text)
+            comment=row['Comment']
+            self.do_sql(sql,id,text,comment)
 
     def openCheckList_th(self,temp_rows): #многопоточный
-        sql, id, text = temp_rows[0],temp_rows[1],temp_rows[2]
+        sql, id, text,comment = temp_rows[0],temp_rows[1],temp_rows[2],temp_rows[3]
         # if 'va_' not in sql:
-        if id >0: #and id not in (92,88,87,70,56,40,34,30,29,53,54,46,84,86) - формулы
-            self.do_sql(sql,id,text)
+
+        if id > 0: #and id not in (92,88,87,70,56,40,34,30,29,53,54,46,84,86) - формулы
+            self.do_sql(sql,id,text,comment)
 
     def startThread(self,path, version, cnt_process):
         xlsx = pd.ExcelFile(path)
@@ -114,7 +117,8 @@ class checkList():
         for index,row in df.iterrows():
             temp_rows.append([row['SQL'].replace('HID', f"'{version}'"),
                               row['ID'],
-                              row['TEXT']]
+                              row['TEXT'],
+                              row['Comment']]
                              )
         with ThreadPool(processes=cnt_process) as pool:
             pool.map(self.openCheckList_th, temp_rows)
@@ -122,8 +126,8 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_a_6_1_0_2'
-    cnt_process = 3 #кол-во потоков
+    version='final71_cbr'
+    cnt_process = 5 #кол-во потоков
     ss=checkList(version)
     print('Запуск - ',datetime.datetime.now())
     ss.startThread(path,version, cnt_process) #многопотоков
