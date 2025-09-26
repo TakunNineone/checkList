@@ -106,7 +106,7 @@ class checkList():
         sql, id, text,comment = temp_rows[0],temp_rows[1],temp_rows[2],temp_rows[3]
         # if 'va_' not in sql:
 
-        if id > 0: #and id not in (92,88,87,70,56,40,34,30,29,53,54,46,84,86) - формулы
+        if id >0: #and id not in (92,88,87,70,56,40,34,30,29,53,54,46,84,86) - формулы
             self.do_sql(sql,id,text,comment)
 
     def startThread(self,path, version, cnt_process):
@@ -126,7 +126,7 @@ class checkList():
 
 if __name__ == "__main__":
     path='checkList.xlsx'
-    version='final_7_1_23.06.2025'
+    version='final_7_1_olya'
     cnt_process = 5 #кол-во потоков
     ss=checkList(version)
     print('Запуск - ',datetime.datetime.now())
